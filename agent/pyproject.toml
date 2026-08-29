@@ -1,0 +1,141 @@
+# Haze Node Agent -- the process that runs on every machine in the network.
+#
+# Distribution name is `haze-agent`, not `haze`: the `haze` name is already
+# taken on PyPI (verified 2026-08-29, HTTP 200).  The CLI command is still
+# `haze` -- console-script names are independent of the distribution name, so
+# `uv tool install haze-agent` gives you a `haze` binary.
+
+[project]
+name = "haze-agent"
+version = "0.1.0"
+description = "Haze -- pool your own machines into a private compute network"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = { text = "MIT" }
+authors = [{ name = "Rahul Akshath" }]
+keywords = ["distributed-computing", "resource-sharing", "lan", "self-hosted"]
+
+dependencies = [
+    # The loopback dashboard API.  Bound to 127.0.0.1 only -- see api/app.py for
+    # why that binding is load-bearing rather than a default.
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.6.0",
+    # CLI.  typer rather than click directly: the `haze devnet up -n 4` style
+    # subcommand tree is what typer is good at, and it is click underneath.
+    "typer>=0.15.0",
+    # Identity + TLS certificates (M1).  One audited dependency covers Ed25519,
+    # X.509 generation and HKDF, which is why PyNaCl is deliberately absent --
+    # we never need the Ed25519->X25519 conversion that only PyNaCl exposes,
+    # because TLS 1.3 negotiates its own ephemeral X25519 inside the handshake.
+    "cryptography>=50.0.1",
+    # mDNS/DNS-SD discovery (M2).  Effectively maintained by the Home Assistant
+    # core team; does NOT use D-Bus, so it works on a NAS with no Avahi.
+    "zeroconf>=0.150.3",
+    # Resource probing (M2).  Per-core CPU, RAM, disk, network counters.
+    "psutil>=6.1.0",
+    # Local state: paired peers, jobs, caps.  aiosqlite because the API layer is
+    # async and a blocking sqlite3 call would stall the telemetry WebSocket.
+    "sqlalchemy[asyncio]>=2.0.36",
+    "aiosqlite>=0.20.0",
+]
+
+[project.optional-dependencies]
+# NVIDIA telemetry.  An extra, not a core dependency: the package pulls CUDA
+# metadata and is useless on the ~half of plausible Haze nodes that are Macs or
+# AMD boxes.  probe/gpu_nvidia.py imports it lazily and degrades to "no GPU".
+nvidia = ["nvidia-ml-py>=12.560.30"]
+
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "httpx>=0.28.0",          # FastAPI TestClient transport
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+    # psutil ships no py.typed; without stubs mypy strict fails on every probe.
+    "types-psutil>=6.1.0",
+]
+
+[project.scripts]
+haze = "haze.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/CodeMaster747/Haze"
+Repository = "https://github.com/CodeMaster747/Haze"
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+# ---------------------------------------------------------------------------
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/haze"]
+# src/haze/webui/ is the built React dashboard, copied in by `make build-web`.
+# It is gitignored (it is a build artifact of web/, not a source of truth), and
+# hatchling honours .gitignore by default -- so without this line the wheel
+# would ship an agent with no UI.  This is the single most breakable line in
+# the file; `make verify-wheel` exists to catch it.
+artifacts = ["src/haze/webui/**"]
+
+# ---------------------------------------------------------------------------
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",    # pycodestyle
+    "F",         # pyflakes
+    "I",         # isort
+    "N",         # pep8-naming
+    "UP",        # pyupgrade
+    "B",         # bugbear
+    "C4",        # comprehensions
+    "SIM",       # simplify
+    "RUF",       # ruff-specific
+    "ASYNC",     # async correctness -- matters a lot here, the agent is all asyncio
+    "S",         # bandit security -- this project executes subprocesses, so keep it on
+    "DTZ",       # naive datetime usage
+]
+ignore = [
+    "E501",    # line length is the formatter's job
+    "B008",    # FastAPI's Depends() in argument defaults is the framework idiom
+    "S101",    # assert is how pytest works
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/*" = ["S101", "S105", "S106", "S311"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["haze"]
+
+# ---------------------------------------------------------------------------
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+# Ships no py.typed.  Imported lazily in probe/gpu_nvidia.py behind a try/except.
+module = ["pynvml.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+# ---------------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q --strict-markers"
+markers = [
+    "lan: requires a second real machine on the LAN; skipped in CI",
+]

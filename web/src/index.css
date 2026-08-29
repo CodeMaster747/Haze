@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-bg-primary font-sans text-text-primary antialiased;
+    /* A very low-contrast wash so large empty panels do not read as a broken
+       page while the first telemetry frame is still in flight. */
+    background-image: radial-gradient(
+      ellipse 90% 60% at 50% -10%,
+      rgba(56, 189, 201, 0.055),
+      transparent
+    );
+    background-attachment: fixed;
+  }
+
+  ::selection {
+    @apply bg-accent-primary/25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

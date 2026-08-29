@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Runners are pinned rather than using *-latest: the `macos-latest` and
+# `windows-latest` labels both migrated mid-2026, and a silent runner change is
+# a bad way to find out your build broke.
+#
+# Cost note: GitHub Actions is unlimited and unmetered on PUBLIC repositories.
+# If this repo is ever made private, these jobs start drawing on the 2,000
+# minute/month free allowance and can bill past it. Never add a macOS runner
+# here -- macOS drains that allowance at a 10x multiplier.
+
+jobs:
+  agent:
+    name: Agent (ruff, mypy, pytest)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install
+        run: pip install -e "./agent[dev]"
+
+      - name: Lint
+        run: ruff check agent
+
+      - name: Typecheck
+        run: mypy agent/src/haze
+
+      - name: Test
+        # The SPA-serving tests skip themselves when the bundle is absent, so
+        # this job stays fast and independent of the web toolchain. The `build`
+        # job below is what proves the bundle actually ships.
+        run: pytest agent/tests -q
+
+  web:
+    name: Web (eslint, tsc, vitest)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+      - run: npx eslint .
+      - run: npx tsc --noEmit
+      - run: npx vitest run --passWithNoTests
+      - run: npm run build
+
+  package:
+    name: Wheel contains the dashboard
+    runs-on: ubuntu-24.04
+    needs: [agent, web]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12', cache: pip }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: web/package-lock.json }
+
+      - name: Build dashboard into the package
+        run: cd web && npm ci && npm run build && cd .. && rm -rf agent/src/haze/webui && cp -R web/dist agent/src/haze/webui
+
+      - name: Install and run the full suite against the real bundle
+        run: |
+          pip install -e "./agent[dev]"
+          pytest agent/tests -q
+
+      - name: Assert the wheel actually contains the dashboard
+        # agent/src/haze/webui/ is gitignored (it is a build artifact), and
+        # hatchling honours .gitignore -- so without the `artifacts` entry in
+        # pyproject.toml the wheel would ship an agent with no UI and nothing
+        # else would notice. This is the check for that.
+        run: |
+          pip wheel --no-deps -w dist ./agent
+          python - <<'PY'
+          import glob, sys, zipfile
+          wheel = glob.glob("dist/haze_agent-*.whl")[0]
+          names = zipfile.ZipFile(wheel).namelist()
+          has_ui = any(n.endswith("haze/webui/index.html") for n in names)
+          print(f"{wheel}: webui/index.html present = {has_ui}")
+          sys.exit(0 if has_ui else 1)
+          PY

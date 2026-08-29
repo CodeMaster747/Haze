@@ -1,0 +1,43 @@
+{
+  "//": [
+    "Public site only: landing, docs, and the in-browser simulated cluster.",
+    "It is built with `npm run build:demo`, which bakes VITE_HAZE_MODE=demo in,",
+    "so this bundle has NO code path that can contact a local agent.",
+    "",
+    "The REAL dashboard is not deployed here. It is served by the Node Agent",
+    "itself from http://127.0.0.1:7433, because a public https origin can no",
+    "longer reach a local agent: Safari hard-blocks it as mixed content and",
+    "Chrome 142+ gates it behind a Local Network Access prompt that Chrome 147",
+    "extended to WebSockets.",
+    "",
+    "Cost note: Spark plan, no payment method. 10 GB storage and 360 MB/day of",
+    "transfer. Exceeding the transfer cap DISABLES the site until the next",
+    "period rather than billing -- which is the property we are buying. At the",
+    "current ~66 KB gzipped bundle that is roughly 5,000 cold visits/day."
+  ],
+  "hosting": {
+    "public": "web/dist",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [{ "source": "**", "destination": "/index.html" }],
+    "headers": [
+      {
+        "//": "Vite emits content-hashed filenames, so assets are immutable.",
+        "source": "/assets/**",
+        "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+      },
+      {
+        "//": "HTML must never be cached, or a deploy does not reach anyone.",
+        "source": "**/*.@(html)",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }]
+      },
+      {
+        "//": "The demo makes no network calls at all; the CSP says so and enforces it.",
+        "source": "**",
+        "headers": [
+          { "key": "X-Content-Type-Options", "value": "nosniff" },
+          { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+        ]
+      }
+    ]
+  }
+}

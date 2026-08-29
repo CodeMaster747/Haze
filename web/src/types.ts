@@ -1,0 +1,75 @@
+/** Domain types shared by the live agent view and the simulated demo.
+ *
+ *  These mirror the payloads in agent/src/haze/api/ws.py. They are hand-written
+ *  rather than generated because the agent's API is small and private (loopback
+ *  only, one consumer); a codegen step would cost more than it saves. If the
+ *  API grows, generate from OpenAPI the way Frugal does.
+ */
+
+export interface CpuStats {
+  percent: number;
+  per_core: number[];
+  cores: number;
+  physical_cores: number;
+}
+
+export interface MemStats {
+  total: number;
+  used: number;
+  available: number;
+  percent: number;
+}
+
+export interface DiskStats {
+  total: number;
+  used: number;
+  free: number;
+  percent: number;
+}
+
+/** Populated in M2. `null` on nodes where the OS will not report GPU telemetry
+ *  without elevated privileges — notably Apple Silicon, where the sudoless path
+ *  (`ioreg -r -c AGXAccelerator`) gives utilisation but not VRAM breakdown. */
+export interface GpuStats {
+  vendor: 'nvidia' | 'apple' | 'amd' | 'intel';
+  name: string;
+  utilisation: number | null;
+  vram_total: number | null;
+  vram_used: number | null;
+  encoders: string[];
+}
+
+export interface NetStats {
+  latency_ms: number | null;
+  throughput_mbps: number | null;
+}
+
+export interface Telemetry {
+  node_name: string;
+  ts: number;
+  uptime_s: number;
+  cpu: CpuStats;
+  ram: MemStats;
+  disk: DiskStats;
+  gpu: GpuStats | null;
+  net: NetStats | null;
+}
+
+export type NodeStatus = 'online' | 'busy' | 'offline' | 'error';
+
+export interface NodeInfo {
+  name: string;
+  /** Ed25519-derived, set from M1. `null` before identity exists. */
+  node_id: string | null;
+  status: NodeStatus;
+  /** True for devnet/demo nodes with synthetic hardware profiles.
+   *  Every surface that renders a node MUST show this — an unbadged fake
+   *  "RTX 4090" on a machine with no NVIDIA GPU turns the project's best demo
+   *  asset into its worst credibility problem. */
+  simulated: boolean;
+  is_self: boolean;
+  telemetry: Telemetry | null;
+}
+
+/** What the socket is doing, for the connection indicator. */
+export type LinkState = 'connecting' | 'live' | 'retrying' | 'unauthorised' | 'closed';

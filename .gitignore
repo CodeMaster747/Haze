@@ -1,0 +1,41 @@
+# --- Python -----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- Node -------------------------------------------------------------------
+node_modules/
+web/dist/
+*.tsbuildinfo
+
+# --- The bundled dashboard --------------------------------------------------
+# `web/` is built into the Python wheel at package time (see agent/pyproject.toml
+# [tool.hatch.build.force-include]).  The copy that lands here is a build
+# artifact, never a source file -- committing it would mean two sources of truth
+# for the dashboard and a guaranteed drift bug.
+agent/src/haze/webui/
+
+# --- Local agent state ------------------------------------------------------
+# Contains the Ed25519 identity seed and the dashboard bearer token.  Never
+# commit; see SECURITY.md.
+.haze/
+*.db
+*.db-journal
+
+# --- Secrets ----------------------------------------------------------------
+.env
+.env.*
+!.env.example
+!.env.production
+
+# --- macOS ------------------------------------------------------------------
+.DS_Store
