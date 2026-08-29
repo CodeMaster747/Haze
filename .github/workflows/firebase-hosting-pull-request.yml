@@ -2,20 +2,20 @@ name: Deploy preview to Firebase Hosting on PR
 
 on: pull_request
 
-# Forks cannot read repository secrets, so the deploy step would fail with a
-# confusing "input required" error. Skip it explicitly instead.
 concurrency:
   group: deploy-preview-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   preview:
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    # Two guards: forks cannot read repository secrets, and the whole workflow
+    # is a no-op until Firebase is configured (see DEPLOY.md).
+    if: github.event.pull_request.head.repo.full_name == github.repository && vars.FIREBASE_PROJECT_ID != ''
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
