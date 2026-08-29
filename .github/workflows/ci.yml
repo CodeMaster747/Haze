@@ -37,11 +37,20 @@ jobs:
       - name: Lint
         run: ruff check agent
 
+      - name: Assert mypy is actually in strict mode
+        # This check exists because the invocation silently regressed once.
+        # mypy resolves its config relative to the working directory, so
+        # `mypy agent/src/haze` from the repo root finds no pyproject.toml and
+        # falls back to DEFAULT mode -- reporting success while checking almost
+        # nothing. A green typecheck is worthless if it is not the strict one,
+        # so prove the config loaded before trusting the result.
+        run: |
+          cd agent
+          mypy src/haze -v 2>&1 | grep -q "Config File:.*pyproject.toml" \
+            || { echo "::error::mypy did not load agent/pyproject.toml - it is running in DEFAULT mode, not strict"; exit 1; }
+          echo "mypy config confirmed loaded"
+
       - name: Typecheck
-        # `cd agent` is load-bearing: mypy resolves its config relative to the
-        # working directory, so running it from the repo root finds no
-        # pyproject.toml and falls back to DEFAULT mode -- which passes while
-        # checking almost nothing.
         run: cd agent && mypy src/haze
 
       - name: Test
