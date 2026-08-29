@@ -22,7 +22,7 @@ setup:  ## Create the venv and install both toolchains
 check: check-agent check-web  ## Everything CI runs
 
 check-agent:  ## ruff + mypy strict + pytest
-	$(PY) -m ruff check agent
+	$(PY) -m ruff check agent scripts
 # mypy MUST run from agent/. It resolves its config relative to the working
 # directory, so `mypy agent/src/haze` from here finds no pyproject.toml and
 # silently runs in DEFAULT mode -- reporting success while checking almost

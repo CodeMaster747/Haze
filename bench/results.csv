@@ -1,0 +1,19 @@
+workload,rounds,target,repeat,compute_s,wall_s,throughput
+small,40,local,1,0.45,0.486,2859 MiB/s
+small,40,local,2,0.45,0.472,2859 MiB/s
+small,40,local,3,0.46,0.474,2789 MiB/s
+small,40,desktop,1,0.4,0.961,2853 MiB/s
+small,40,desktop,2,0.4,0.958,2782 MiB/s
+small,40,desktop,3,0.4,0.968,2740 MiB/s
+medium,200,local,1,2.13,2.221,3005 MiB/s
+medium,200,local,2,2.12,2.2,3022 MiB/s
+medium,200,local,3,2.11,2.214,3035 MiB/s
+medium,200,desktop,1,2.01,2.542,3025 MiB/s
+medium,200,desktop,2,2.0,2.541,3012 MiB/s
+medium,200,desktop,3,2.01,2.557,3000 MiB/s
+large,600,local,1,6.3,6.317,3051 MiB/s
+large,600,local,2,6.27,6.364,3062 MiB/s
+large,600,local,3,6.3,6.301,3050 MiB/s
+large,600,desktop,1,6.02,6.468,3042 MiB/s
+large,600,desktop,2,6.01,6.453,3032 MiB/s
+large,600,desktop,3,6.02,6.463,3032 MiB/s

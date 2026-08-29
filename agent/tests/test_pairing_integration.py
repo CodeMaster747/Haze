@@ -62,6 +62,15 @@ class Node:
                 time.sleep(0.25)
         raise RuntimeError(f"{self.name} did not become ready within {STARTUP_TIMEOUT_S}s")
 
+    def kill(self) -> None:
+        """SIGKILL, with no chance to clean up -- the power-cut case, not a
+        graceful shutdown."""
+        if self.process is None:
+            return
+        self.process.kill()
+        self.process.wait(timeout=10)
+        self.process = None
+
     def stop(self) -> None:
         if self.process is None:
             return
@@ -255,3 +264,106 @@ def test_unpairing_revokes_access(cluster: dict[str, Node]) -> None:
     # Specifically "not paired" -- proving it reached beta and beta refused,
     # rather than failing to connect for some unrelated reason.
     assert "not paired" in str(result["detail"]).lower()
+
+
+# --- fault injection --------------------------------------------------------
+# What happens when a machine goes away mid-job is the difference between a
+# distributed system and a demo. These assert the submitter finds out promptly
+# and is told something it can act on.
+
+
+def _pair(a: Node, b: Node) -> None:
+    """Pair two nodes, confirming on both sides."""
+    b.post("/pairing/arm", {"ttl_s": 120})
+    a.post("/pairing/initiate", {"host": "127.0.0.1", "port": b.node_port})
+    on_a, on_b = a.pending("outgoing"), b.pending("incoming")
+    assert on_a and on_b
+    a.post("/pairing/confirm", {"session_id": on_a["session_id"]})
+    b.post("/pairing/confirm", {"session_id": on_b["session_id"]})
+    assert a.wait_for_peer_count(1)
+
+
+def test_a_worker_dying_mid_job_fails_fast_with_an_actionable_message(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """Kill the machine running a job. The submitter must not hang, and must
+    not be shown asyncio's "0 bytes read on a total of 4 expected bytes" --
+    which was the real behaviour before this test existed.
+    """
+    root = tmp_path_factory.mktemp("chaos")
+    submitter = Node("submitter", root / "submitter", 7601, 8601)
+    worker = Node("worker", root / "worker", 7602, 8602)
+
+    submitter.start()
+    worker.start()
+    try:
+        _pair(submitter, worker)
+        peer = submitter.peers()[0]
+
+        job = submitter.post(
+            "/jobs",
+            {"runtime": "hashbench", "args": {"rounds": 6000}, "node_id": peer["node_id"],
+             "label": "chaos victim", "cpu_cores": 1, "wall_seconds": 300},
+        )
+        job_id = job["job_id"]
+
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            if submitter.get(f"/jobs/{job_id}")["state"] == "running":
+                break
+            time.sleep(0.2)
+        else:
+            pytest.fail("the job never started on the worker")
+
+        worker.kill()
+
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            record = submitter.get(f"/jobs/{job_id}")
+            if record["state"] in {"failed", "cancelled", "rejected"}:
+                break
+            time.sleep(0.25)
+        else:
+            pytest.fail("the submitter hung after its worker died")
+
+        assert record["state"] == "failed"
+        assert "disconnected" in record["error"]
+        assert "resubmitting" in record["error"]
+        # The raw asyncio wording must never reach a user.
+        assert "expected bytes" not in record["error"]
+    finally:
+        submitter.stop()
+        worker.stop()
+
+
+def test_the_submitter_survives_its_worker_dying(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """A peer disappearing must not take the local agent with it."""
+    root = tmp_path_factory.mktemp("chaos2")
+    submitter = Node("survivor", root / "survivor", 7603, 8603)
+    worker = Node("doomed", root / "doomed", 7604, 8604)
+
+    submitter.start()
+    worker.start()
+    try:
+        _pair(submitter, worker)
+        worker.kill()
+        time.sleep(2)
+
+        # Still serving, still able to run work locally.
+        assert submitter.get("/health")["ok"] is True
+        local = submitter.post(
+            "/jobs", {"runtime": "hashbench", "args": {"rounds": 10}, "cpu_cores": 1,
+                      "wall_seconds": 60},
+        )
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            record = submitter.get(f"/jobs/{local['job_id']}")
+            if record["state"] != "running":
+                break
+            time.sleep(0.2)
+        assert record["state"] == "succeeded"
+    finally:
+        submitter.stop()
+        worker.stop()

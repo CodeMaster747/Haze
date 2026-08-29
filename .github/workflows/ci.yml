@@ -35,7 +35,7 @@ jobs:
         run: pip install -e "./agent[dev]"
 
       - name: Lint
-        run: ruff check agent
+        run: ruff check agent scripts
 
       - name: Assert mypy is actually in strict mode
         # This check exists because the invocation silently regressed once.

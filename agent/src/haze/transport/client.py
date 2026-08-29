@@ -232,7 +232,23 @@ async def submit_job_to(
         # far side, and a client-side timer would abandon a legitimately long
         # render while it was still making progress.
         while True:
-            message = await conn.recv(timeout=spec.resources.wall_seconds + 60)
+            try:
+                message = await conn.recv(timeout=spec.resources.wall_seconds + 60)
+            except (asyncio.IncompleteReadError, ConnectionError, ssl.SSLError) as exc:
+                # The peer vanished mid-job -- agent killed, machine slept, cable
+                # pulled. asyncio's own message here is "0 bytes read on a total
+                # of 4 expected bytes", which tells the person who submitted the
+                # job nothing at all about what happened or what to do.
+                raise ConnectError(
+                    f"{peer.display_name} disconnected while running this job. "
+                    f"Its agent may have stopped or the machine gone to sleep — "
+                    f"the work is lost and will need resubmitting."
+                ) from exc
+            except TimeoutError as exc:
+                raise ConnectError(
+                    f"{peer.display_name} stopped responding while running this job "
+                    f"(no message for {spec.resources.wall_seconds + 60}s)."
+                ) from exc
             kind = message.get("type")
 
             if kind == "job_rejected":

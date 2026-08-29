@@ -9,11 +9,11 @@ on the desktop's GPU, get the result back — with per-node limits you set.
 
 No cloud provider, no account, no bill. You own every node.
 
-> **Status: works end to end.** Milestones 0–5 of 6 are complete. You can pair
-> two machines, run a real job on the other one — files across, progress back,
-> results home — ask the scheduler why it chose what it chose, and play with a
-> simulated cluster in the browser. Only the benchmark/docs polish of M6 is
-> left. See [Roadmap](#roadmap) for exactly what works today.
+> **Status: complete through M6.** Pair two machines, run a real job on the
+> other one — files across, progress back, results home — ask the scheduler why
+> it chose what it chose, kill a machine mid-job and watch it fail cleanly, and
+> play with a simulated cluster in the browser. The only thing outstanding is
+> deploying the demo, which needs a Firebase project.
 
 ---
 
@@ -176,6 +176,44 @@ replays it against the TypeScript implementation the browser demo runs. Change
 one and the conformance test fails until you change the other — so "the demo
 runs the real algorithm" is a checked claim, not a marketing one.
 
+### Measured overhead
+
+`scripts/run_benchmark.py` writes [bench/results.md](bench/results.md) and the
+raw per-run CSV beside it. Both are committed, because a benchmark nobody can
+inspect is a claim rather than a measurement.
+
+| workload | local wall | remote compute | remote wall | Haze overhead |
+|---|---|---|---|---|
+| 40 rounds | 0.47s | 0.40s | 0.96s | 0.56s (58% of the round trip) |
+| 200 rounds | 2.21s | 2.01s | 2.54s | 0.53s (21%) |
+| 600 rounds | 6.32s | 6.02s | 6.46s | 0.44s (7%) |
+
+**Both agents here are on one Mac**, so there is no hardware speedup to measure
+and the script says so in its own output. What it does measure is Haze's own
+overhead: roughly **fixed at half a second**, so it dominates a short job and
+vanishes into a long one.
+
+That is the whole argument for weighing transfer cost. Below some size,
+offloading cannot win no matter how fast the other machine is — and a scheduler
+comparing raw speed would send the work anyway.
+
+### When a machine goes away
+
+```bash
+haze run hashbench --on desktop --rounds 6000   # then kill the desktop's agent
+```
+
+```
+  failed: desktop disconnected while running this job. Its agent may have
+  stopped or the machine gone to sleep — the work is lost and will need
+  resubmitting.
+```
+
+Fails in well under a second rather than hanging, and says something you can
+act on. Before there was a test for this, the message was asyncio's own
+`0 bytes read on a total of 4 expected bytes`. Two integration tests now hold
+that line, and a third asserts the surviving agent keeps working.
+
 ### Resource limits, honestly
 
 | | Enforced by | Reality |
@@ -306,7 +344,7 @@ utilisation on Apple Silicon is available without root; VRAM breakdown is not.
 | M3 | Job submission, execution, progress, file transfer | ✅ done |
 | M4 | Scheduler + `haze explain` + conformance corpus | ✅ done |
 | M5 | The in-browser simulated cluster (deployed demo) | ✅ built — awaiting a Firebase project to deploy to |
-| M6 | Real two-machine benchmark, chaos commands, docs | next |
+| M6 | Benchmark with committed data, fault injection, docs | ✅ done |
 
 **Deliberately out of scope:** interactive application/game streaming. It is a
 product, not a feature — the leading open-source implementation is ~2.5 MB of
@@ -315,6 +353,15 @@ broken input on Apple Silicon, and streaming over the internet cannot be made
 free because 10–30% of connections fall back to a bandwidth-metered TURN relay.
 What ships instead is live job telemetry and rendered frames appearing in the
 dashboard as the remote machine produces them.
+
+## Documentation
+
+- [docs/architecture.md](docs/architecture.md) — how the pieces fit, and which
+  constraint forced each shape
+- [SECURITY.md](SECURITY.md) — the threat model, and an equally specific list of
+  what Haze does *not* defend against
+- [DEPLOY.md](DEPLOY.md) — the zero-cost rule, and the three ways to break it
+- [bench/results.md](bench/results.md) — measured overhead, with raw data
 
 ## Development
 
