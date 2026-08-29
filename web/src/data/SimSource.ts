@@ -47,7 +47,15 @@ export class SimSource implements DataSource {
   }
 
   subscribe(onUpdate: (update: ClusterUpdate) => void): () => void {
-    const emit = () => onUpdate({ nodes: this.nodes.map((n) => this.toNodeInfo(n)), link: 'live' });
+    const emit = () =>
+      onUpdate({
+        nodes: this.nodes.map((n) => this.toNodeInfo(n)),
+        link: 'live',
+        // The demo's nodes are already "paired" by construction. Reporting an
+        // inert pairing state keeps the UI on one code path rather than
+        // needing to know which source it is rendering.
+        pairing: { armed: false, arm_remaining_s: 0, pending: [], last_error: null },
+      });
 
     emit();
     this.timer = window.setInterval(() => {

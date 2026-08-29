@@ -2,19 +2,27 @@ import { useEffect } from 'react';
 
 import { NodeCard } from '@/components/cluster/NodeCard';
 import { Header } from '@/components/layout/Header';
+import { PairingPanel } from '@/components/pairing/PairingPanel';
+import { PeerList } from '@/components/pairing/PeerList';
+import { SasDialog } from '@/components/pairing/SasDialog';
 import { Panel } from '@/components/ui/Panel';
 import { useCluster } from '@/stores/cluster';
 
 export default function App() {
-  const { nodes, link, isLive, connect } = useCluster();
+  const { nodes, link, pairing, isLive, connect } = useCluster();
 
   useEffect(() => connect(), [connect]);
+
+  // At most one dialog at a time. The agent allows only one outstanding
+  // request per peer, and stacking modals would make "compare these digits"
+  // ambiguous about which pair of screens is being compared.
+  const awaiting = pairing?.pending.find((p) => p.decision === 'pending');
 
   return (
     <div className="min-h-dvh bg-bg-primary text-text-primary">
       <Header link={link} isLive={isLive} />
 
-      <main className="mx-auto max-w-6xl animate-fade-in px-5 py-6">
+      <main className="mx-auto max-w-6xl animate-fade-in space-y-4 px-5 py-6">
         {link === 'unauthorised' ? (
           <Unauthorised />
         ) : nodes.length === 0 ? (
@@ -24,13 +32,22 @@ export default function App() {
             </p>
           </Panel>
         ) : (
-          <div className="grid gap-4 lg:grid-cols-2">
-            {nodes.map((node) => (
-              <NodeCard key={node.name} node={node} />
-            ))}
-          </div>
+          <>
+            <div className="grid gap-4 lg:grid-cols-2">
+              {nodes.map((node) => (
+                <NodeCard key={node.name} node={node} />
+              ))}
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <PairingPanel pairing={pairing} disabled={!isLive} />
+              <PeerList enabled={isLive} />
+            </div>
+          </>
         )}
       </main>
+
+      {awaiting && <SasDialog pending={awaiting} />}
     </div>
   );
 }
@@ -50,9 +67,10 @@ function Unauthorised() {
           haze open
         </pre>
         <p className="text-text-muted">
-          The token lives in <code className="font-mono text-text-secondary">~/.haze/config.json</code>{' '}
-          and gates an API that can run processes on this machine, which is why the dashboard
-          will not load without it.
+          The token lives in{' '}
+          <code className="font-mono text-text-secondary">~/.haze/config.json</code> and gates an
+          API that can run processes on this machine, which is why the dashboard will not load
+          without it.
         </p>
       </div>
     </Panel>

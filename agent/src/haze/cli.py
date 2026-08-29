@@ -13,7 +13,7 @@ import webbrowser
 import typer
 
 import haze
-from haze import config, log
+from haze import cli_pairing, config, log
 
 app = typer.Typer(
     name="haze",
@@ -26,13 +26,15 @@ app = typer.Typer(
 @app.command()
 def up(
     port: int = typer.Option(0, "--port", "-p", help="Dashboard port (default: 7433, scanning up)."),
+    node_port: int = typer.Option(0, "--node-port", help="Port other nodes connect to (default: 8443)."),
     name: str = typer.Option("", "--name", "-n", help="Display name for this node."),
     open_browser: bool = typer.Option(True, "--open/--no-open", help="Open the dashboard."),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ) -> None:
     """Start the node agent and serve the dashboard on 127.0.0.1."""
     log.setup(verbose)
-    cfg = config.load_or_create(node_name=name or None, api_port=port or None)
+    cfg = config.load_or_create(node_name=name or None, api_port=port or None,
+                                node_port=node_port or None)
 
     try:
         actual_port = config.find_free_port(cfg.api_port)
@@ -46,7 +48,12 @@ def up(
     url = f"http://127.0.0.1:{actual_port}/?t={cfg.dashboard_token}"
     config.write_runtime(cfg, actual_port)
 
-    typer.secho(f"\n  Haze {haze.__version__}  ·  node “{cfg.node_name}”", fg=typer.colors.BRIGHT_WHITE)
+    from haze.identity.keys import load_or_create as _load_identity
+
+    identity = _load_identity()
+    typer.secho(f"\n  Haze {haze.__version__}  ·  {cfg.node_name}  ({identity.short_id})",
+                fg=typer.colors.BRIGHT_WHITE)
+    typer.secho(f"  Peers:   0.0.0.0:{cfg.node_port}", fg=typer.colors.BRIGHT_BLACK)
     typer.secho(f"  Console: {url}\n", fg=typer.colors.BRIGHT_MAGENTA)
 
     if open_browser:
@@ -94,6 +101,12 @@ def open_console() -> None:
         typer.secho("no agent running -- start one with `haze up`", fg=typer.colors.RED, err=True)
         raise typer.Exit(1)
     webbrowser.open(str(rt["url"]))
+
+
+app.add_typer(cli_pairing.pair_app, name="pair")
+app.command("peers")(cli_pairing.peers_command)
+app.command("unpair")(cli_pairing.unpair_command)
+app.command("id")(cli_pairing.id_command)
 
 
 @app.command()

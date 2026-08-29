@@ -32,8 +32,8 @@ from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket
 
 import haze
-from haze import log
-from haze.api import security, ws
+from haze import log, runtime
+from haze.api import routes_pairing, security, ws
 from haze.config import Config
 
 _log = log.get("api.app")
@@ -77,19 +77,30 @@ class _SecurityHeaders(BaseHTTPMiddleware):
         return response
 
 
-def create_app(cfg: Config, api_port: int) -> FastAPI:
+def create_app(cfg: Config, api_port: int, *, serve_peers: bool = True) -> FastAPI:
+    """Build the loopback app.
+
+    ``serve_peers=False`` skips binding the node-to-node listener, which is what
+    the test suite wants: it exercises the API without claiming a LAN port that
+    a real agent (or a parallel test) might already hold.
+    """
     security.configure(cfg.dashboard_token, api_port)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        _log.info("dashboard  %s", f"http://127.0.0.1:{api_port}/")
+        agent = await runtime.start(cfg, serve_peers=serve_peers)
+        app.state.agent = agent
+
         hub = ws.TelemetryHub(cfg)
         await hub.start()
         app.state.hub = hub
+
+        _log.info("dashboard  %s", f"http://127.0.0.1:{api_port}/")
         try:
             yield
         finally:
             await hub.stop()
+            await runtime.stop(agent)
 
     app = FastAPI(
         title="Haze Node Agent",
@@ -112,22 +123,23 @@ def create_app(cfg: Config, api_port: int) -> FastAPI:
 
     @api.get("/node")
     async def node() -> JSONResponse:
-        """This node's own identity and capabilities.
-
-        M1 replaces the placeholder node_id with the real Ed25519-derived one.
-        """
+        """This node's own identity and current state."""
         hub: ws.TelemetryHub = app.state.hub
+        agent: runtime.Agent | None = getattr(app.state, "agent", None)
         return JSONResponse(
             {
                 "name": cfg.node_name,
-                "node_id": None,          # M1
+                "node_id": agent.node_id if agent else None,
+                "short_id": agent.identity.short_id if agent else None,
                 "simulated": False,       # M2: devnet profiles set this True
                 "api_port": api_port,
+                "node_port": cfg.node_port,
                 "version": haze.__version__,
                 "snapshot": hub.latest(),
             }
         )
 
+    api.include_router(routes_pairing.router)
     app.include_router(api)
 
     @app.websocket("/ws")
@@ -137,7 +149,8 @@ def create_app(cfg: Config, api_port: int) -> FastAPI:
             return  # authorise_websocket already closed the socket
         await socket.accept(subprotocol=auth.subprotocol)
         hub: ws.TelemetryHub = app.state.hub
-        await hub.serve(socket)
+        agent: runtime.Agent | None = getattr(app.state, "agent", None)
+        await hub.serve(socket, agent.pairing if agent else None)
 
     # --- static SPA, mounted last so it never shadows /api or /ws ------------
     if (WEBUI_DIR / "index.html").is_file():

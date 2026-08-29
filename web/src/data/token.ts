@@ -35,6 +35,15 @@ export function captureToken(): string | null {
   }
 }
 
+/** Current token, if the page was opened with one. */
+export function getToken(): string | null {
+  try {
+    return sessionStorage.getItem(KEY);
+  } catch {
+    return null;
+  }
+}
+
 export function clearToken(): void {
   try {
     sessionStorage.removeItem(KEY);

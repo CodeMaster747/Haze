@@ -9,9 +9,10 @@ on the desktop's GPU, get the result back — with per-node limits you set.
 
 No cloud provider, no account, no bill. You own every node.
 
-> **Status: early.** Milestone 0 of 6 is complete — the agent, the loopback
-> dashboard, and live telemetry. Pairing, discovery, jobs and the scheduler are
-> in progress. See [Roadmap](#roadmap) for exactly what works today.
+> **Status: early.** Milestones 0–1 of 6 are complete — the agent, the loopback
+> dashboard, live telemetry, and device pairing over mutually-authenticated
+> TLS 1.3. Discovery, jobs and the scheduler are next. See
+> [Roadmap](#roadmap) for exactly what works today.
 
 ---
 
@@ -41,6 +42,31 @@ binary to download, on purpose — an unsigned binary triggers a malware warning
 on macOS and Windows, and "this might be malware" is the wrong first impression
 for a tool whose whole premise is running code on your machines. Code signing
 costs $99/yr, which would break the zero-cost rule.
+
+## Pair two machines
+
+```bash
+# on the first machine
+haze up
+haze pair --serve
+
+# on the second
+haze up
+haze pair --host 192.168.1.42
+```
+
+Both screens show the same six digits and four words. Confirm on **both** —
+that comparison is the entire security model, and neither side can pair alone.
+
+```
+        385664                      385664
+   buzzard talon               buzzard talon
+  dragnet aardvark            dragnet aardvark
+```
+
+The code is derived *from* the two machines' public keys, so there is nothing to
+guess. A machine-in-the-middle would have to substitute a key, which makes the
+two screens disagree. See [SECURITY.md](SECURITY.md).
 
 ## Try it on one machine
 
@@ -98,7 +124,7 @@ the contract:
 |---|---|---|
 | CPU / RAM / disk telemetry | ✅ live from `psutil` | seeded mean-reverting walk |
 | GPU telemetry | ✅ NVIDIA via NVML; Apple Silicon utilisation via `ioreg` | fabricated from a profile |
-| Node identity, pairing, TLS | ✅ real Ed25519 + TLS 1.3 | n/a |
+| Node identity, pairing, TLS | ✅ real Ed25519 + TLS 1.3 | n/a — demo nodes are pre-paired |
 | Job execution | ✅ real subprocesses | `sleep(work / speed_factor)` |
 | The scheduler's decision | ✅ **the same algorithm in both** | ✅ same |
 
@@ -117,8 +143,8 @@ utilisation on Apple Silicon is available without root; VRAM breakdown is not.
 | | Milestone | State |
 |---|---|---|
 | M0 | Agent, loopback dashboard, live telemetry, CI | ✅ done |
-| M1 | Ed25519 identity, TLS 1.3 mutual pinning, pairing | next |
-| M2 | LAN discovery, resource probes, `haze devnet` | |
+| M1 | Ed25519 identity, TLS 1.3 transport, SAS pairing | ✅ done |
+| M2 | LAN discovery, resource probes, `haze devnet` | next |
 | M3 | Job submission, execution, progress, file transfer | |
 | M4 | Scheduler + `haze explain` + conformance corpus | |
 | M5 | The in-browser simulated cluster (deployed demo) | |
@@ -143,15 +169,24 @@ make run       # start an agent
 
 ## Security
 
-The agent's loopback API can start processes, so it is authenticated even though
-it only listens on `127.0.0.1`: every request needs a bearer token from a 0600
-file, and the WebSocket upgrade validates the `Origin` header. That second check
-is not optional — WebSocket upgrades carry no CORS preflight, and Firefox
-currently lets any HTTPS page open `ws://127.0.0.1` with no prompt at all.
-Without it, any website you visit could drive your cluster.
+Haze lets one of your machines run processes on another, so the trust model is
+the load-bearing part of the design, not a layer on top:
 
-See `SECURITY.md` for the full threat model, including what Haze explicitly does
-*not* defend against.
+- **Identity** is an Ed25519 keypair per node; the node ID is its public key's
+  hash, with Luhn check characters so a human can read one aloud safely.
+- **Pairing** shows the same six digits on both screens, derived *from* both
+  public keys. Both users must confirm. A machine-in-the-middle cannot produce
+  matching codes.
+- **The handshake** has the client sign the *server's* public key, which is what
+  defeats a relay attack — a signature is bound to the TLS session that made it.
+- **The loopback API** is authenticated even on `127.0.0.1`, with an Origin
+  check on the WebSocket upgrade. Upgrades carry no CORS preflight, and Firefox
+  currently lets any HTTPS page open `ws://127.0.0.1` with no prompt; without
+  that check any site you visit could drive your cluster.
+
+[SECURITY.md](SECURITY.md) has the full model — including an equally specific
+list of what Haze does **not** defend against, such as resource caps on macOS,
+which cannot be enforced the way they can on Linux and Windows.
 
 ## Licence
 

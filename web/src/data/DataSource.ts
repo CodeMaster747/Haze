@@ -9,11 +9,14 @@
  *  exercises the same rendering path as the real dashboard.
  */
 
-import type { LinkState, NodeInfo } from '@/types';
+import type { LinkState, NodeInfo, PairingState } from '@/types';
 
 export interface ClusterUpdate {
   nodes: NodeInfo[];
   link: LinkState;
+  /** Undefined means "unchanged" — telemetry ticks far more often than
+   *  pairing state, so most updates carry no pairing payload at all. */
+  pairing?: PairingState;
 }
 
 export interface DataSource {

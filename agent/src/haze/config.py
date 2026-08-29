@@ -117,7 +117,11 @@ class Config:
         return f"http://127.0.0.1:{self.api_port}/?t={self.dashboard_token}"
 
 
-def load_or_create(node_name: str | None = None, api_port: int | None = None) -> Config:
+def load_or_create(
+    node_name: str | None = None,
+    api_port: int | None = None,
+    node_port: int | None = None,
+) -> Config:
     """Read ``config.json``, creating it (and a fresh token) on first run."""
     d = ensure_state_dir()
     path = d / "config.json"
@@ -130,8 +134,21 @@ def load_or_create(node_name: str | None = None, api_port: int | None = None) ->
         data["dashboard_token"] = secrets.token_urlsafe(32)
         changed = True
 
-    if "node_name" not in data:
+    # An explicitly given --name is persisted, so `haze id` and `haze peers`
+    # agree with what `haze up --name` displayed. Without this the flag applied
+    # only to the running process and every other command showed the hostname.
+    if node_name and data.get("node_name") != node_name:
+        data["node_name"] = node_name
+        changed = True
+    elif "node_name" not in data:
         data["node_name"] = socket.gethostname().split(".")[0] or "haze-node"
+        changed = True
+
+    # Same for --node-port: other machines are told this value during the
+    # handshake, so it has to survive a restart or they would call back to a
+    # port nothing is listening on.
+    if node_port and data.get("node_port") != node_port:
+        data["node_port"] = node_port
         changed = True
 
     for key, default in (
@@ -150,7 +167,7 @@ def load_or_create(node_name: str | None = None, api_port: int | None = None) ->
     return Config(
         node_name=str(node_name or data["node_name"]),
         api_port=int(api_port or data["api_port"]),
-        node_port=int(data["node_port"]),
+        node_port=int(node_port or data["node_port"]),
         beacon_port=int(data["beacon_port"]),
         dashboard_token=str(data["dashboard_token"]),
     )

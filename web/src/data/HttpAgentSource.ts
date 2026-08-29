@@ -9,7 +9,7 @@
 
 import type { ClusterUpdate, DataSource } from '@/data/DataSource';
 import { captureToken } from '@/data/token';
-import type { LinkState, NodeInfo, Telemetry } from '@/types';
+import type { LinkState, NodeInfo, PairingState, Telemetry } from '@/types';
 
 const WS_PROTOCOL = 'haze.v1';
 
@@ -25,11 +25,12 @@ export class HttpAgentSource implements DataSource {
   private attempt = 0;
   private stopped = false;
   private nodes: NodeInfo[] = [];
+  private pairing: PairingState | undefined;
 
   subscribe(onUpdate: (update: ClusterUpdate) => void): () => void {
     const token = captureToken();
 
-    const emit = (link: LinkState) => onUpdate({ nodes: this.nodes, link });
+    const emit = (link: LinkState) => onUpdate({ nodes: this.nodes, link, pairing: this.pairing });
 
     if (!token) {
       // No token means the page was opened by hand rather than by `haze up`.
@@ -54,18 +55,29 @@ export class HttpAgentSource implements DataSource {
       };
 
       socket.onmessage = (event) => {
-        const msg = JSON.parse(event.data as string) as { type: string; data: Telemetry };
-        if (msg.type !== 'snapshot' && msg.type !== 'telemetry') return;
-        this.nodes = [
-          {
-            name: msg.data.node_name,
-            node_id: null,
-            status: 'online',
-            simulated: false,
-            is_self: true,
-            telemetry: msg.data,
-          },
-        ];
+        // The agent multiplexes telemetry and pairing down one socket: a
+        // pairing dialog has to appear the instant a peer knocks, and a second
+        // socket would double the auth surface for one low-rate event stream.
+        const msg = JSON.parse(event.data as string) as
+          | { type: 'snapshot' | 'telemetry'; data: Telemetry }
+          | { type: 'pairing'; data: PairingState };
+
+        if (msg.type === 'pairing') {
+          this.pairing = msg.data;
+        } else if (msg.type === 'snapshot' || msg.type === 'telemetry') {
+          this.nodes = [
+            {
+              name: msg.data.node_name,
+              node_id: null,
+              status: 'online',
+              simulated: false,
+              is_self: true,
+              telemetry: msg.data,
+            },
+          ];
+        } else {
+          return;
+        }
         emit('live');
       };
 

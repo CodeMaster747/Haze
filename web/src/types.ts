@@ -73,3 +73,50 @@ export interface NodeInfo {
 
 /** What the socket is doing, for the connection indicator. */
 export type LinkState = 'connecting' | 'live' | 'retrying' | 'unauthorised' | 'closed';
+
+// --- pairing ---------------------------------------------------------------
+
+export type PairDirection = 'incoming' | 'outgoing';
+export type PairDecision = 'pending' | 'confirmed' | 'rejected' | 'expired';
+
+export interface PendingPairing {
+  session_id: string;
+  direction: PairDirection;
+  node_id: string;
+  short_id: string;
+  name: string;
+  platform: string;
+  version: string;
+  /** The six digits that MUST match the other machine's screen. */
+  sas_digits: string;
+  /** The same value as four PGP words — far easier to compare across a room
+   *  than six digits, and much harder to misread as matching when it isn't. */
+  sas_words: string[];
+  decision: PairDecision;
+  expires_in_s: number;
+}
+
+export interface PairingState {
+  armed: boolean;
+  arm_remaining_s: number;
+  pending: PendingPairing[];
+  last_error: string | null;
+}
+
+export interface SelfNode {
+  node_id: string | null;
+  short_id: string | null;
+  name: string;
+}
+
+export interface PeerRow {
+  node_id: string;
+  short_id: string;
+  name: string;
+  platform: string;
+  version: string;
+  last_host: string;
+  last_port: number;
+  paired_at: string;
+  last_seen_at: string | null;
+}

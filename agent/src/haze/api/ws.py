@@ -18,6 +18,7 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from haze import log
 from haze.config import Config
+from haze.pairing.manager import PairingManager
 
 _log = log.get("api.ws")
 
@@ -76,20 +77,50 @@ class TelemetryHub:
 
     # --- delivery ----------------------------------------------------------
 
-    async def serve(self, socket: WebSocket) -> None:
-        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=_QUEUE_DEPTH)
-        self._subscribers.add(queue)
+    async def serve(self, socket: WebSocket, pairing: PairingManager | None = None) -> None:
+        """Stream telemetry, and pairing events, down one socket.
+
+        Both are multiplexed here rather than given separate sockets: the
+        pairing dialog has to appear the instant a peer knocks, and a second
+        connection would double the auth surface for one low-rate event stream.
+        """
+        telemetry: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=_QUEUE_DEPTH)
+        self._subscribers.add(telemetry)
+        pairing_queue = pairing.subscribe() if pairing else None
+
         try:
-            # Send the current state immediately so the UI paints on connect
-            # rather than showing an empty dashboard for up to a second.
+            # Paint immediately on connect rather than showing an empty
+            # dashboard for up to a second.
             await socket.send_json({"type": "snapshot", "data": self._latest})
-            while True:
-                sample = await queue.get()
-                await socket.send_json({"type": "telemetry", "data": sample})
+            if pairing is not None:
+                await socket.send_json({"type": "pairing", "data": pairing.state()})
+
+            sources: list[asyncio.Queue[dict[str, Any]]] = [telemetry]
+            if pairing_queue is not None:
+                sources.append(pairing_queue)
+
+            pending = {asyncio.create_task(q.get()): q for q in sources}
+            try:
+                while True:
+                    done, _ = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+                    for task in done:
+                        queue = pending.pop(task)
+                        item = task.result()
+                        # Telemetry samples are bare payloads; pairing events
+                        # arrive already wrapped with their own type.
+                        await socket.send_json(
+                            item if "type" in item else {"type": "telemetry", "data": item}
+                        )
+                        pending[asyncio.create_task(queue.get())] = queue
+            finally:
+                for task in pending:
+                    task.cancel()
         except (WebSocketDisconnect, RuntimeError, ConnectionError):
             pass
         finally:
-            self._subscribers.discard(queue)
+            self._subscribers.discard(telemetry)
+            if pairing is not None and pairing_queue is not None:
+                pairing.unsubscribe(pairing_queue)
 
 
 def _sample(cfg: Config, started_at: float) -> dict[str, Any]:
