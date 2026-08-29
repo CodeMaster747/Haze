@@ -9,10 +9,11 @@ on the desktop's GPU, get the result back — with per-node limits you set.
 
 No cloud provider, no account, no bill. You own every node.
 
-> **Status: works end to end.** Milestones 0–4 of 6 are complete. You can pair
+> **Status: works end to end.** Milestones 0–5 of 6 are complete. You can pair
 > two machines, run a real job on the other one — files across, progress back,
-> results home — and ask the scheduler why it chose what it chose. The deployed
-> demo is next. See [Roadmap](#roadmap) for exactly what works today.
+> results home — ask the scheduler why it chose what it chose, and play with a
+> simulated cluster in the browser. Only the benchmark/docs polish of M6 is
+> left. See [Roadmap](#roadmap) for exactly what works today.
 
 ---
 
@@ -190,6 +191,29 @@ The dashboard shows which of these you actually got. A cap that silently is not
 enforced is worse than no cap — it makes someone comfortable running a job they
 should have thought harder about.
 
+## The browser demo
+
+The deployed site runs a **simulated cluster in your browser**. No backend: nothing
+to pay for, nothing to cold-start, nothing that rots when a free tier changes
+terms — and something moving within a second of landing.
+
+It is not a mock. Placement goes through the same `decide()` the agent runs,
+held to the Python implementation by the conformance corpus above. What is
+simulated is the hardware and the passage of time; the scheduling is real.
+
+You can submit jobs, drag the network between machines from LAN to slow link
+and watch an encode job come home, take a machine offline mid-job and watch the
+work get rescheduled, and pause or fast-forward the virtual clock.
+
+**The hosted bundle provably cannot contact a local agent.** `__HAZE_DEMO__` is
+a compile-time constant, so the minifier strips the entire agent-facing path,
+and `make verify-demo-bundle` (also a CI step) asserts the built artifact
+contains no loopback address, no `/api/v1`, and no `WebSocket` constructor. That
+matters because the demo is served over HTTPS — a stray request to
+`127.0.0.1` would be blocked by Safari and prompted by Chrome, so a visitor's
+first impression would be a security warning about a request that was never
+going to work.
+
 ## Discovery
 
 Three mechanisms, run together rather than as a fallback chain:
@@ -281,8 +305,8 @@ utilisation on Apple Silicon is available without root; VRAM breakdown is not.
 | M2 | LAN discovery, resource probes, `haze devnet` | ✅ done |
 | M3 | Job submission, execution, progress, file transfer | ✅ done |
 | M4 | Scheduler + `haze explain` + conformance corpus | ✅ done |
-| M5 | The in-browser simulated cluster (deployed demo) | next |
-| M6 | Real two-machine benchmark, chaos commands, docs | |
+| M5 | The in-browser simulated cluster (deployed demo) | ✅ built — awaiting a Firebase project to deploy to |
+| M6 | Real two-machine benchmark, chaos commands, docs | next |
 
 **Deliberately out of scope:** interactive application/game streaming. It is a
 product, not a feature — the leading open-source implementation is ~2.5 MB of

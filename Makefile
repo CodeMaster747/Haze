@@ -6,7 +6,7 @@ PIP     := .venv/bin/pip
 WEBUI   := agent/src/haze/webui
 
 .DEFAULT_GOAL := help
-.PHONY: help setup check check-agent check-web build build-web verify-wheel run devnet clean
+.PHONY: help setup check check-agent check-web build build-web build-demo verify-wheel verify-demo-bundle run devnet clean
 
 help:  ## Show this help
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -45,6 +45,9 @@ build-web:  ## Build web/ and copy it into the Python package
 
 build-demo:  ## Build the Firebase-hosted demo bundle (simulated cluster, no backend)
 	cd web && npm run build:demo
+
+verify-demo-bundle: build-demo  ## Prove the hosted bundle cannot reach a local agent
+	@$(PY) scripts/verify_demo_bundle.py
 
 verify-wheel: build-web  ## Prove the wheel actually contains the dashboard
 	@rm -rf dist && $(PY) -m pip wheel --no-deps -q -w dist ./agent

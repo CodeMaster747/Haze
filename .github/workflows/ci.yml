@@ -80,6 +80,15 @@ jobs:
       - run: npx vitest run --passWithNoTests
       - run: npm run build
 
+      - name: The hosted demo bundle must not be able to reach a local agent
+        # It is served over HTTPS, so any request to 127.0.0.1 would be blocked
+        # by Safari and prompted by Chrome. `__HAZE_DEMO__` is a compile-time
+        # constant so the minifier strips that path -- this proves it did.
+        working-directory: .
+        run: |
+          cd web && npm run build:demo && cd ..
+          python3 scripts/verify_demo_bundle.py
+
   package:
     name: Wheel contains the dashboard
     runs-on: ubuntu-24.04

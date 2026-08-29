@@ -13,6 +13,15 @@ import { getToken } from '@/data/token';
 import type { PeerRow, SelfNode } from '@/types';
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+  // A compile-time constant, so in the demo build the minifier removes
+  // everything below this line — no fetch, no token read, no /api/v1 string.
+  // That is what makes "the hosted bundle cannot contact a local agent" a
+  // property of the artifact rather than of the code paths we happen to take.
+  // Verified by `make verify-demo-bundle`.
+  if (__HAZE_DEMO__) {
+    throw new Error('the demo build has no agent to talk to');
+  }
+
   const token = getToken();
   const response = await fetch(`/api/v1${path}`, {
     method,
