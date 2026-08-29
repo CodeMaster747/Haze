@@ -14,12 +14,16 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from pathlib import Path
 from typing import Any
 
 from haze import log
+from haze.blobs import transfer as blobs
 from haze.config import Config
 from haze.db import peers as peer_db
 from haze.identity.keys import Identity
+from haze.jobs.executor import JobExecutor
+from haze.jobs.spec import JobRecord, JobSpec
 from haze.pairing.manager import PairingManager
 from haze.transport import frames, tls
 from haze.transport.handshake import HandshakeError, PeerIdentity, server_handshake
@@ -29,13 +33,32 @@ _log = log.get("transport.server")
 IDLE_TIMEOUT_S = 300.0
 
 
+def _containable_outputs(candidates: list[str], workdir: Path) -> list[Path]:
+    """Keep only files that genuinely live inside this job's directory.
+
+    The submitter names nothing here -- it asks for "the outputs" and receives
+    exactly what the runtime reported. This is the check that a runtime bug, or
+    a crafted Saved: line in a job's output, cannot turn into "send me
+    /etc/passwd".
+    """
+    root = workdir.resolve()
+    kept: list[Path] = []
+    for candidate in candidates:
+        path = Path(candidate)
+        if path.is_file() and root in path.resolve().parents:
+            kept.append(path)
+    return kept
+
+
 class NodeServer:
     """Accepts connections from other Haze nodes."""
 
-    def __init__(self, cfg: Config, identity: Identity, pairing: PairingManager) -> None:
+    def __init__(self, cfg: Config, identity: Identity, pairing: PairingManager,
+                 executor: JobExecutor | None = None) -> None:
         self._cfg = cfg
         self._identity = identity
         self._pairing = pairing
+        self._executor = executor
         self._server: asyncio.Server | None = None
 
     async def start(self) -> None:
@@ -182,15 +205,180 @@ class NodeServer:
                 _log.debug("idle timeout for %s", peer.node_id.split("-")[0])
                 return
 
+            if message.get("type") == "job_submit":
+                # Handled inline rather than through _dispatch: a job produces a
+                # stream of progress frames, not a single reply.
+                await self._run_job_for(reader, writer, message, peer)
+                continue
+
             reply = await self._dispatch(message, peer)
             if reply is None:
                 return
             await frames.write_frame(writer, reply)
 
+    async def _run_job_for(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        message: dict[str, Any],
+        peer: PeerIdentity,
+    ) -> None:
+        """Accept a peer's job, then stream its progress back until it ends."""
+        if self._executor is None:
+            await frames.write_frame(
+                writer, frames.message("job_rejected", reason="this node does not run jobs")
+            )
+            return
+
+        try:
+            spec = JobSpec.from_dict({**(message.get("spec") or {}), "submitted_by": peer.node_id})
+        except (KeyError, TypeError, ValueError) as exc:
+            await frames.write_frame(
+                writer, frames.message("job_rejected", reason=f"malformed job spec: {exc}")
+            )
+            return
+
+        # Stage any input files before admitting the job: a Blender render
+        # cannot start without its .blend, and rejecting late would waste the
+        # transfer.
+        workdir = self._executor.workdir_for(spec.job_id)
+        try:
+            manifest = [blobs.FileManifest.from_dict(f) for f in (message.get("files") or [])]
+            if manifest:
+                workdir.mkdir(mode=0o700, parents=True, exist_ok=True)
+                await self._receive_files(reader, writer, manifest, workdir)
+        except blobs.TransferError as exc:
+            await frames.write_frame(
+                writer, frames.message("job_rejected", reason=f"file transfer failed: {exc}")
+            )
+            return
+
+        record = self._executor.submit(spec)
+        if record.state.value == "rejected":
+            await frames.write_frame(
+                writer, frames.message("job_rejected", reason=record.error, job=record.to_dict())
+            )
+            return
+
+        await frames.write_frame(writer, frames.message("job_accepted", job=record.to_dict()))
+
+        # Poll rather than subscribe: the executor already coalesces progress to
+        # ~2.5 Hz, and polling at the same rate keeps the streaming path free of
+        # a second callback registry to leak.
+        last = ""
+        while not record.state.terminal:
+            await asyncio.sleep(0.4)
+            current = f"{record.state}{record.progress.fraction}{record.progress.detail}"
+            if current != last:
+                last = current
+                await frames.write_frame(
+                    writer, frames.message("job_progress", job=record.to_dict())
+                )
+
+        await frames.write_frame(writer, frames.message("job_finished", job=record.to_dict()))
+
+        # The submitter may now ask for the outputs. Optional: a job whose
+        # result is 40 GiB of frames is often better left where it was made,
+        # so fetching is the caller's decision rather than automatic.
+        if record.outputs:
+            await self._offer_outputs(reader, writer, record)
+        _log.info(
+            "job %s for %s finished: %s",
+            spec.job_id[:8], peer.node_id.split("-")[0], record.state.value,
+        )
+
+    async def _offer_outputs(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, record: JobRecord
+    ) -> None:
+        """Send a finished job's outputs back, if the submitter asks."""
+        try:
+            request = await asyncio.wait_for(frames.read_frame(reader), 30)
+        except (TimeoutError, asyncio.IncompleteReadError, ConnectionError):
+            return
+        if request.get("type") != "job_fetch_outputs":
+            return
+
+        workdir = self._executor.workdir_for(record.spec.job_id) if self._executor else None
+        if workdir is None:
+            return
+
+        try:
+            # Off the event loop: resolving and stat-ing a few hundred rendered
+            # frames is real filesystem work, not a couple of calls.
+            paths = await asyncio.to_thread(_containable_outputs, record.outputs, workdir)
+            manifest = await asyncio.to_thread(blobs.build_manifest, paths)
+        except blobs.TransferError as exc:
+            await frames.write_frame(writer, frames.message("job_outputs", error=str(exc)))
+            return
+
+        await frames.write_frame(
+            writer, frames.message("job_outputs", files=[m.to_dict() for m in manifest])
+        )
+        for path in paths:
+            with path.open("rb") as handle:
+                while chunk := handle.read(blobs.CHUNK_BYTES):
+                    await frames.write_frame(writer, frames.message("job_file_chunk", name=path.name))
+                    await frames.write_blob(writer, chunk)
+        _log.info("sent %d output file(s) for job %s", len(paths), record.spec.job_id[:8])
+
+    async def _receive_files(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        manifest: list[blobs.FileManifest],
+        workdir: Path,
+    ) -> None:
+        """Pull the declared files, verifying each chunk's digest."""
+        total = sum(entry.size for entry in manifest)
+        if total > blobs.MAX_TOTAL_BYTES:
+            raise blobs.TransferError(
+                f"declared {total // 1024**2} MiB; the limit is "
+                f"{blobs.MAX_TOTAL_BYTES // 1024**3} GiB"
+            )
+
+        await frames.write_frame(
+            writer, frames.message("job_files_wanted", names=[e.name for e in manifest])
+        )
+
+        for entry in manifest:
+            receiver = blobs.Receiver(entry, workdir)
+            try:
+                remaining = entry.size
+                while remaining > 0:
+                    header = await asyncio.wait_for(frames.read_frame(reader), 120)
+                    if header.get("type") != "job_file_chunk" or header.get("name") != entry.name:
+                        raise blobs.TransferError(
+                            f"expected a chunk of {entry.name}, got {header.get('type')!r}"
+                        )
+                    chunk = await frames.read_blob(reader, blobs.CHUNK_BYTES)
+                    receiver.write(chunk)
+                    remaining -= len(chunk)
+                    if not chunk:
+                        raise blobs.TransferError(f"{entry.name}: sender stopped early")
+                receiver.finish()
+            except (TimeoutError, asyncio.IncompleteReadError, ConnectionError) as exc:
+                receiver.abort()
+                raise blobs.TransferError(f"{entry.name}: connection lost mid-transfer") from exc
+            except BaseException:
+                receiver.abort()
+                raise
+
+        _log.info("received %d file(s) for a job", len(manifest))
+
     async def _dispatch(self, message: dict[str, Any], peer: PeerIdentity) -> dict[str, Any] | None:
         kind = message.get("type")
         if kind == "ping":
             return frames.message("pong", echo=message.get("echo"))
+        if kind == "capabilities":
+            # What this node can do, so a submitter can choose sensibly. The
+            # scheduler in M4 consumes exactly this.
+            from haze.jobs import runtimes as rt
+
+            return frames.message(
+                "capabilities",
+                runtimes=rt.available_names(),
+                caps=self._executor.caps.to_dict() if self._executor else None,
+            )
         if kind == "bye":
             return None
         _log.warning("unknown message %r from %s", kind, peer.node_id.split("-")[0])

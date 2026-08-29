@@ -9,7 +9,13 @@
  *  exercises the same rendering path as the real dashboard.
  */
 
-import type { DiscoveryState, LinkState, NodeInfo, PairingState } from '@/types';
+import type {
+  DiscoveryState,
+  JobsState,
+  LinkState,
+  NodeInfo,
+  PairingState,
+} from '@/types';
 
 export interface ClusterUpdate {
   nodes: NodeInfo[];
@@ -18,6 +24,7 @@ export interface ClusterUpdate {
    *  pairing or discovery, so most updates carry neither payload. */
   pairing?: PairingState;
   discovery?: DiscoveryState;
+  jobs?: JobsState;
 }
 
 export interface DataSource {

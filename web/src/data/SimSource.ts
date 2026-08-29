@@ -14,7 +14,13 @@
 import type { ClusterUpdate, DataSource } from '@/data/DataSource';
 import { PROFILES, type Profile } from '@/sim/profiles';
 import { mulberry32, ouStep } from '@/sim/rng';
-import type { DiscoveredNode, DiscoveryState, NodeInfo, Telemetry } from '@/types';
+import type {
+  DiscoveredNode,
+  DiscoveryState,
+  JobsState,
+  NodeInfo,
+  Telemetry,
+} from '@/types';
 
 const TICK_MS = 1_000;
 const DEFAULT_SEED = 0x48415a45; // "HAZE"
@@ -61,6 +67,7 @@ export class SimSource implements DataSource {
         // The demo cluster is pre-paired and pre-discovered by construction;
         // there is no agent behind it to run mDNS or a beacon.
         discovery: this.discoveryState(),
+        jobs: this.jobsState(),
       });
 
     emit();
@@ -102,6 +109,61 @@ export class SimSource implements DataSource {
           reachable: true,
           age_s: 1,
         })),
+    };
+  }
+
+  /** A finished job, so the demo shows the panel populated rather than empty.
+   *  M5 replaces this with the interactive simulation, where jobs actually
+   *  progress on a virtual clock and can be placed by the scheduler. */
+  private jobsState(): JobsState {
+    return {
+      caps: {
+        max_cores: 8,
+        max_ram_bytes: 32 * 1024 ** 3,
+        max_wall_seconds: 7200,
+        allow_gpu: true,
+        enforcement: 'demo — no jobs actually run here',
+      },
+      runtimes: [
+        { name: 'hashbench', available: true, description: 'CPU benchmark' },
+        { name: 'blender', available: true, description: 'Render frames from a .blend file' },
+        { name: 'ffmpeg', available: true, description: 'Transcode a video file' },
+      ],
+      jobs: [
+        {
+          job_id: 'demo-0001',
+          runtime: 'hashbench',
+          label: 'benchmark (remote)',
+          submitted_by: 'DEMOLAP-…',
+          args: { rounds: 300 },
+          resources: {
+            cpu_cores: 1,
+            ram_bytes: 1024 ** 3,
+            wall_seconds: 900,
+            needs_gpu: false,
+            preferred_encoders: [],
+          },
+          state: 'succeeded',
+          progress: {
+            fraction: 1,
+            stage: 'done',
+            detail: '',
+            frames_done: 300,
+            frames_total: 300,
+            rate: '3048 MiB/s',
+            eta_seconds: 0,
+          },
+          created_at: new Date(0).toISOString(),
+          started_at: new Date(0).toISOString(),
+          finished_at: new Date(0).toISOString(),
+          duration_s: 3.14,
+          exit_code: 0,
+          error: '',
+          log_tail: [],
+          outputs: [],
+          peak_ram_bytes: 25 * 1024 ** 2,
+        },
+      ],
     };
   }
 

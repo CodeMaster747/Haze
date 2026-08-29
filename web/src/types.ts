@@ -153,3 +153,68 @@ export interface DiscoveryState {
   broadcast: boolean;
   nodes: DiscoveredNode[];
 }
+
+// --- jobs ------------------------------------------------------------------
+
+export type JobState =
+  | 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'rejected';
+
+export interface JobProgress {
+  /** null where the runtime does not give enough to compute one. A progress
+   *  bar that lies is worse than one that admits it does not know. */
+  fraction: number | null;
+  stage: string;
+  detail: string;
+  frames_done: number | null;
+  frames_total: number | null;
+  rate: string;
+  eta_seconds: number | null;
+}
+
+export interface Job {
+  job_id: string;
+  runtime: string;
+  label: string;
+  submitted_by: string;
+  args: Record<string, unknown>;
+  resources: {
+    cpu_cores: number;
+    ram_bytes: number;
+    wall_seconds: number;
+    needs_gpu: boolean;
+    preferred_encoders: string[];
+  };
+  state: JobState;
+  progress: JobProgress;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  duration_s: number | null;
+  exit_code: number | null;
+  error: string;
+  log_tail: string[];
+  outputs: string[];
+  peak_ram_bytes: number;
+}
+
+export interface RuntimeInfo {
+  name: string;
+  available: boolean;
+  description: string;
+}
+
+export interface JobCaps {
+  max_cores: number;
+  max_ram_bytes: number;
+  max_wall_seconds: number;
+  allow_gpu: boolean;
+  /** One line naming what this OS can actually enforce. Shown next to the caps
+   *  because a cap that silently is not enforced is worse than no cap. */
+  enforcement: string;
+}
+
+export interface JobsState {
+  caps: JobCaps;
+  runtimes: RuntimeInfo[];
+  jobs: Job[];
+}

@@ -38,6 +38,16 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 export const api = {
   addManualNode: (host: string, port = 0) =>
     call<unknown>('POST', '/discovery/manual', { host, port }),
+  submitJob: (body: {
+    runtime: string;
+    args: Record<string, unknown>;
+    node_id?: string;
+    label?: string;
+    cpu_cores?: number;
+    ram_bytes?: number;
+    wall_seconds?: number;
+  }) => call<unknown>('POST', '/jobs', body),
+  cancelJob: (jobId: string) => call<unknown>('POST', `/jobs/${jobId}/cancel`),
   listPeers: () => call<{ self: SelfNode; peers: PeerRow[] }>('GET', '/peers'),
   armPairing: (ttl_s = 180) => call<unknown>('POST', '/pairing/arm', { ttl_s }),
   disarmPairing: () => call<unknown>('POST', '/pairing/disarm'),

@@ -9,11 +9,10 @@ on the desktop's GPU, get the result back — with per-node limits you set.
 
 No cloud provider, no account, no bill. You own every node.
 
-> **Status: early.** Milestones 0–2 of 6 are complete — the agent, the loopback
-> dashboard, live telemetry, pairing over mutually-authenticated TLS 1.3, LAN
-> discovery, and a simulated multi-node cluster you can run on one machine.
-> Jobs and the scheduler are next. See [Roadmap](#roadmap) for exactly what
-> works today.
+> **Status: works end to end.** Milestones 0–3 of 6 are complete. You can pair
+> two machines and run a real job on the other one — files go across, progress
+> streams back live, results come home. The scheduler and the deployed demo are
+> next. See [Roadmap](#roadmap) for exactly what works today.
 
 ---
 
@@ -98,6 +97,65 @@ Not docker-compose, deliberately: Compose V2 broke per-replica port ranges
 passthrough, and its `--network=host` does not behave like Linux's — which
 would break the multicast this is meant to exercise.
 
+## Run something on another machine
+
+```bash
+# render 3 frames on the desktop, from the laptop
+haze run blender --on desktop --blend scene.blend --frames 1-3
+```
+
+```
+  blender on desktop
+  ██████████████████████████ 100.0% 0.6s/frame
+  done in 1.61s · 0.6s/frame
+    …/jobs/58c22cf4/out/0001.png
+    …/jobs/58c22cf4/out/0002.png
+    …/jobs/58c22cf4/out/0003.png
+```
+
+The `.blend` is streamed to the desktop with the job, rendered there, and the
+PNGs come back — all over the same mutually-authenticated TLS connection.
+
+**Haze does not run arbitrary commands.** A job names a runtime from a fixed
+allowlist (`hashbench`, `blender`, `ffmpeg`) and supplies typed arguments; the
+runtime builds the command line. There is no shell anywhere in the path, and no
+field a peer controls becomes a command name. Paths are resolved strictly inside
+the job's own directory, so `../../../etc/passwd` is refused rather than
+sanitised.
+
+### Benchmarking
+
+```bash
+haze bench --compare
+```
+
+```
+  node                   compute   round trip    throughput   vs local
+  ────────────────────────────────────────────────────────────────────
+  this machine             3.14s        3.21s    3063 MiB/s      1.00×
+  desktop                  2.81s        3.57s    3059 MiB/s      0.90×
+```
+
+Note the desktop **computing faster and still losing**. That is the honest
+result, and it is the entire argument for having a scheduler: offloading is
+only worth it when the work outweighs the cost of moving it. A benchmark that
+reported compute time alone would hide exactly the thing worth knowing.
+
+### Resource limits, honestly
+
+| | Enforced by | Reality |
+|---|---|---|
+| Wall clock | Haze itself | Real everywhere — needs no OS support |
+| Memory (Linux) | cgroups v2 | Real: the kernel kills on breach |
+| CPU (Linux) | cgroups v2 | Real: a genuine share, not a priority hint |
+| Memory (macOS) | `setrlimit` + monitoring | **Advisory.** Bounds address space, not resident set |
+| CPU (macOS) | `nice` | **Not enforceable.** No cgroups, no Job Objects |
+| Memory/CPU (Windows) | monitoring only | Job Objects not implemented yet |
+
+The dashboard shows which of these you actually got. A cap that silently is not
+enforced is worse than no cap — it makes someone comfortable running a job they
+should have thought harder about.
+
 ## Discovery
 
 Three mechanisms, run together rather than as a fallback chain:
@@ -164,6 +222,7 @@ the contract:
 | GPU telemetry | ✅ NVIDIA via NVML; Apple Silicon via `ioreg`, no root needed | fabricated from a profile |
 | Hardware encoders | ✅ probed from `ffmpeg -encoders` | listed in the profile |
 | Discovery | ✅ real mDNS + UDP broadcast | pre-populated |
+| Job execution | ✅ real subprocesses, real files, real output | a finished record |
 | Node identity, pairing, TLS | ✅ real Ed25519 + TLS 1.3 | n/a — demo nodes are pre-paired |
 | Job execution | ✅ real subprocesses | `sleep(work / speed_factor)` |
 | The scheduler's decision | ✅ **the same algorithm in both** | ✅ same |
@@ -185,8 +244,8 @@ utilisation on Apple Silicon is available without root; VRAM breakdown is not.
 | M0 | Agent, loopback dashboard, live telemetry, CI | ✅ done |
 | M1 | Ed25519 identity, TLS 1.3 transport, SAS pairing | ✅ done |
 | M2 | LAN discovery, resource probes, `haze devnet` | ✅ done |
-| M3 | Job submission, execution, progress, file transfer | next |
-| M4 | Scheduler + `haze explain` + conformance corpus | |
+| M3 | Job submission, execution, progress, file transfer | ✅ done |
+| M4 | Scheduler + `haze explain` + conformance corpus | next |
 | M5 | The in-browser simulated cluster (deployed demo) | |
 | M6 | Real two-machine benchmark, chaos commands, docs | |
 

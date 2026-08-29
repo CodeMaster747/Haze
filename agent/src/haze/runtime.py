@@ -8,7 +8,10 @@ networking", it is a node that happens to expose a local web UI.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from dataclasses import dataclass
+from typing import Any
 
 from haze import log
 from haze.config import Config
@@ -17,6 +20,8 @@ from haze.db import session as db
 from haze.discovery.registry import DiscoveryRegistry
 from haze.identity import certs
 from haze.identity.keys import Identity, load_or_create
+from haze.jobs.executor import JobExecutor
+from haze.jobs.spec import JobRecord
 from haze.pairing.manager import PairingManager
 from haze.probe.base import ResourceProbe
 from haze.probe.host import HostProbe
@@ -27,6 +32,40 @@ from haze.transport.server import NodeServer
 _log = log.get("runtime")
 
 
+class _JobListeners:
+    """Fans job updates out to connected dashboards.
+
+    Lives here rather than in the executor so the executor stays a plain object
+    with no knowledge of websockets -- it takes one callback and that is all.
+    """
+
+    def __init__(self) -> None:
+        self._queues: list[asyncio.Queue[dict[str, Any]]] = []
+
+    def subscribe(self) -> asyncio.Queue[dict[str, Any]]:
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=16)
+        self._queues.append(queue)
+        return queue
+
+    def unsubscribe(self, queue: asyncio.Queue[dict[str, Any]]) -> None:
+        if queue in self._queues:
+            self._queues.remove(queue)
+
+    def publish(self, record: JobRecord) -> None:
+        payload: dict[str, Any] = {"type": "job", "data": record.to_dict()}
+        for queue in list(self._queues):
+            # A dashboard this far behind re-reads the job list on reconnect.
+            with contextlib.suppress(asyncio.QueueFull):
+                queue.put_nowait(payload)
+
+
+_job_listeners = _JobListeners()
+
+
+def job_listeners() -> _JobListeners:
+    return _job_listeners
+
+
 @dataclass
 class Agent:
     cfg: Config
@@ -35,6 +74,7 @@ class Agent:
     node_server: NodeServer
     probe: ResourceProbe
     discovery: DiscoveryRegistry | None
+    executor: JobExecutor
 
     @property
     def node_id(self) -> str:
@@ -67,7 +107,8 @@ async def start(
     certs.load_or_create(identity)
 
     pairing = PairingManager(identity.public_key)
-    node_server = NodeServer(cfg, identity, pairing)
+    executor = JobExecutor(on_update=_job_listeners.publish)
+    node_server = NodeServer(cfg, identity, pairing, executor)
 
     probe: ResourceProbe
     if profile is not None:
@@ -97,10 +138,12 @@ async def start(
         node_server=node_server,
         probe=probe,
         discovery=discovery,
+        executor=executor,
     )
 
 
 async def stop(agent: Agent) -> None:
+    await agent.executor.shutdown()
     if agent.discovery is not None:
         await agent.discovery.stop()
     await agent.node_server.stop()

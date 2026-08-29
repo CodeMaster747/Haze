@@ -13,7 +13,7 @@ import webbrowser
 import typer
 
 import haze
-from haze import cli_devnet, cli_pairing, config, log
+from haze import cli_devnet, cli_jobs, cli_pairing, config, log
 
 app = typer.Typer(
     name="haze",
@@ -112,6 +112,9 @@ def open_console() -> None:
 
 app.add_typer(cli_pairing.pair_app, name="pair")
 app.add_typer(cli_devnet.devnet_app, name="devnet")
+app.command("run")(cli_jobs.run_command)
+app.command("jobs")(cli_jobs.jobs_command)
+app.command("bench")(cli_jobs.bench_command)
 app.command("peers")(cli_pairing.peers_command)
 app.command("unpair")(cli_pairing.unpair_command)
 app.command("id")(cli_pairing.id_command)

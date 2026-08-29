@@ -71,6 +71,26 @@ async def write_frame(writer: asyncio.StreamWriter, message: dict[str, Any]) -> 
     await writer.drain()
 
 
+async def read_blob(reader: asyncio.StreamReader, max_bytes: int) -> bytes:
+    """Read a length-prefixed binary payload.
+
+    Sent immediately after a JSON frame that announces it. Raw bytes rather
+    than base64 inside JSON: base64 costs 33% more on the wire and forces the
+    whole payload through a JSON parser, which is the wrong tool for file
+    contents.
+    """
+    header = await reader.readexactly(HEADER_SIZE)
+    (length,) = _HEADER.unpack(header)
+    if length > max_bytes:
+        raise FrameError(f"blob of {length} bytes exceeds the {max_bytes} byte limit")
+    return await reader.readexactly(length)
+
+
+async def write_blob(writer: asyncio.StreamWriter, payload: bytes) -> None:
+    writer.write(_HEADER.pack(len(payload)) + payload)
+    await writer.drain()
+
+
 def message(kind: str, **fields: Any) -> dict[str, Any]:
     """Build a frame body.
 

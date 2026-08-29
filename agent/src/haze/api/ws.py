@@ -24,6 +24,8 @@ from haze.probe.base import ResourceProbe
 if TYPE_CHECKING:
     from haze.runtime import Agent
 
+from haze.runtime import job_listeners
+
 _log = log.get("api.ws")
 
 SAMPLE_INTERVAL_S = 1.0
@@ -95,6 +97,7 @@ class TelemetryHub:
 
         pairing_q = agent.pairing.subscribe() if agent else None
         discovery_q = agent.discovery.subscribe() if agent and agent.discovery else None
+        jobs_q = job_listeners().subscribe() if agent else None
 
         try:
             # Paint immediately on connect rather than showing an empty
@@ -104,8 +107,9 @@ class TelemetryHub:
                 await socket.send_json({"type": "pairing", "data": agent.pairing.state()})
                 if agent.discovery is not None:
                     await socket.send_json({"type": "discovery", "data": agent.discovery.state()})
+                await socket.send_json({"type": "jobs", "data": agent.executor.state()})
 
-            queues = [q for q in (telemetry, pairing_q, discovery_q) if q is not None]
+            queues = [q for q in (telemetry, pairing_q, discovery_q, jobs_q) if q is not None]
             pending = {asyncio.create_task(q.get()): q for q in queues}
             try:
                 while True:
@@ -131,6 +135,8 @@ class TelemetryHub:
                     agent.pairing.unsubscribe(pairing_q)
                 if discovery_q is not None and agent.discovery is not None:
                     agent.discovery.unsubscribe(discovery_q)
+                if jobs_q is not None:
+                    job_listeners().unsubscribe(jobs_q)
 
 
 __all__ = ["SAMPLE_INTERVAL_S", "TelemetryHub"]

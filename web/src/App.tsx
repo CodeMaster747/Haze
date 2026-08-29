@@ -1,16 +1,38 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 import { NodeCard } from '@/components/cluster/NodeCard';
 import { NetworkPanel } from '@/components/discovery/NetworkPanel';
+import { JobsPanel } from '@/components/jobs/JobsPanel';
 import { Header } from '@/components/layout/Header';
 import { PairingPanel } from '@/components/pairing/PairingPanel';
 import { PeerList } from '@/components/pairing/PeerList';
 import { SasDialog } from '@/components/pairing/SasDialog';
 import { Panel } from '@/components/ui/Panel';
+import { api } from '@/lib/api';
 import { useCluster } from '@/stores/cluster';
+import type { PeerRow } from '@/types';
 
 export default function App() {
-  const { nodes, link, pairing, discovery, isLive, connect } = useCluster();
+  const { nodes, link, pairing, discovery, jobs, isLive, connect } = useCluster();
+  const [peers, setPeers] = useState<PeerRow[]>([]);
+
+  // Only for the "run on" picker. Polled, because pairing changes twice a year
+  // and does not deserve a place on the telemetry socket.
+  useEffect(() => {
+    if (!isLive) return;
+    let alive = true;
+    const load = () =>
+      api
+        .listPeers()
+        .then((d) => alive && setPeers(d.peers))
+        .catch(() => undefined);
+    void load();
+    const timer = window.setInterval(load, 5_000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [isLive]);
 
   useEffect(() => connect(), [connect]);
 
@@ -44,6 +66,8 @@ export default function App() {
               <NetworkPanel discovery={discovery} disabled={!isLive} />
               <PeerList enabled={isLive} />
             </div>
+
+            <JobsPanel jobs={jobs} peers={peers} disabled={!isLive} />
 
             <PairingPanel pairing={pairing} disabled={!isLive} />
           </>

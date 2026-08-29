@@ -8,12 +8,15 @@ import ssl
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from haze import log
+from haze.blobs import transfer as blobs
 from haze.config import Config
 from haze.db import peers as peer_db
 from haze.identity.keys import Identity
+from haze.jobs.spec import JobSpec
 from haze.pairing import sas
 from haze.transport import frames, tls
 from haze.transport.handshake import HandshakeError, PeerIdentity, client_handshake
@@ -176,6 +179,129 @@ async def pair(
             port=port,
         )
         return conn.peer
+
+
+async def submit_job_to(
+    node_id: str,
+    spec: JobSpec,
+    identity: Identity,
+    cfg: Config,
+    on_progress: Callable[[dict[str, Any]], None] | None = None,
+    files: list[Path] | None = None,
+    fetch_into: Path | None = None,
+) -> dict[str, Any]:
+    """Run a job on a paired peer and stream its progress back.
+
+    Returns the finished job record. Raises ConnectError with a message written
+    for the person who submitted it.
+    """
+    peer = await peer_db.get(node_id)
+    if peer is None:
+        raise ConnectError(f"not paired with {node_id.split('-')[0]}")
+    if not peer.last_host or not peer.last_port:
+        raise ConnectError(
+            f"no known address for {peer.display_name} yet -- wait for it to connect once"
+        )
+
+    async with connect(
+        peer.last_host, peer.last_port, identity, cfg.node_name, cfg.node_port,
+        expected_public_key=peer.public_key, expected_cert=peer.cert_der,
+    ) as conn:
+        hello = await conn.recv(timeout=10.0)
+        if hello.get("type") != "auth_ok":
+            raise ConnectError(str(hello.get("detail") or hello.get("reason") or "refused"))
+
+        manifest = blobs.build_manifest(files or [])
+        await conn.send(
+            frames.message(
+                "job_submit",
+                spec=spec.to_dict(),
+                files=[entry.to_dict() for entry in manifest],
+            )
+        )
+
+        if manifest:
+            wanted = await conn.recv(timeout=30.0)
+            if wanted.get("type") == "job_rejected":
+                raise ConnectError(f"{peer.display_name} refused: {wanted.get('reason')}")
+            if wanted.get("type") != "job_files_wanted":
+                raise ConnectError(f"unexpected reply {wanted.get('type')!r} to a file offer")
+            await _send_files(conn, files or [])
+
+        # No overall deadline here: the job's own wall_seconds bounds it on the
+        # far side, and a client-side timer would abandon a legitimately long
+        # render while it was still making progress.
+        while True:
+            message = await conn.recv(timeout=spec.resources.wall_seconds + 60)
+            kind = message.get("type")
+
+            if kind == "job_rejected":
+                raise ConnectError(f"{peer.display_name} refused the job: {message.get('reason')}")
+            if kind == "job_accepted" or kind == "job_progress":
+                if on_progress:
+                    on_progress(dict(message.get("job") or {}))
+            elif kind == "job_finished":
+                final = dict(message.get("job") or {})
+                if fetch_into is not None and final.get("outputs"):
+                    final["outputs"] = await _fetch_outputs(conn, fetch_into)
+                return final
+            elif kind == "error":
+                raise ConnectError(str(message.get("detail") or message.get("reason")))
+
+
+async def _fetch_outputs(conn: Connection, destination: Path) -> list[str]:
+    """Pull a finished job's outputs back to this machine."""
+    await asyncio.to_thread(destination.mkdir, parents=True, exist_ok=True)
+    await conn.send(frames.message("job_fetch_outputs"))
+
+    header = await conn.recv(timeout=60.0)
+    if header.get("type") != "job_outputs" or header.get("error"):
+        _log.warning("could not fetch outputs: %s", header.get("error") or header.get("type"))
+        return []
+
+    manifest = [blobs.FileManifest.from_dict(f) for f in (header.get("files") or [])]
+    written: list[str] = []
+    for entry in manifest:
+        receiver = blobs.Receiver(entry, destination)
+        try:
+            remaining = entry.size
+            while remaining > 0:
+                chunk_header = await conn.recv(timeout=120.0)
+                if chunk_header.get("type") != "job_file_chunk":
+                    raise blobs.TransferError(f"expected a chunk, got {chunk_header.get('type')!r}")
+                chunk = await frames.read_blob(conn.reader, blobs.CHUNK_BYTES)
+                receiver.write(chunk)
+                remaining -= len(chunk)
+            written.append(str(receiver.finish()))
+        except (blobs.TransferError, TimeoutError, ConnectionError) as exc:
+            receiver.abort()
+            _log.warning("output %s did not transfer: %s", entry.name, exc)
+    return written
+
+
+async def _send_files(conn: Connection, paths: list[Path]) -> None:
+    """Stream each file as announce-then-blob pairs."""
+    for path in paths:
+        with path.open("rb") as handle:
+            while chunk := handle.read(blobs.CHUNK_BYTES):
+                await conn.send(frames.message("job_file_chunk", name=path.name))
+                await frames.write_blob(conn.writer, chunk)
+
+
+async def peer_capabilities(node_id: str, identity: Identity, cfg: Config) -> dict[str, Any]:
+    """Ask a peer what it can run. The scheduler's input in M4."""
+    peer = await peer_db.get(node_id)
+    if peer is None or not peer.last_host or not peer.last_port:
+        raise ConnectError("peer is not reachable yet")
+
+    async with connect(
+        peer.last_host, peer.last_port, identity, cfg.node_name, cfg.node_port,
+        expected_public_key=peer.public_key, expected_cert=peer.cert_der,
+    ) as conn:
+        await conn.recv(timeout=10.0)   # auth_ok
+        await conn.send(frames.message("capabilities"))
+        reply = await conn.recv(timeout=10.0)
+        return {"runtimes": reply.get("runtimes") or [], "caps": reply.get("caps")}
 
 
 async def ping_peer(node_id: str, identity: Identity, cfg: Config) -> tuple[bool, str]:

@@ -33,7 +33,7 @@ from starlette.websockets import WebSocket
 
 import haze
 from haze import log, runtime
-from haze.api import routes_pairing, security, ws
+from haze.api import routes_jobs, routes_pairing, security, ws
 from haze.config import Config
 
 _log = log.get("api.app")
@@ -149,6 +149,7 @@ def create_app(
         )
 
     api.include_router(routes_pairing.router)
+    api.include_router(routes_jobs.router)
     app.include_router(api)
 
     @app.websocket("/ws")

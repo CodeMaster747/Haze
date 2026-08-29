@@ -9,7 +9,15 @@
 
 import type { ClusterUpdate, DataSource } from '@/data/DataSource';
 import { captureToken } from '@/data/token';
-import type { DiscoveryState, LinkState, NodeInfo, PairingState, Telemetry } from '@/types';
+import type {
+  DiscoveryState,
+  Job,
+  JobsState,
+  LinkState,
+  NodeInfo,
+  PairingState,
+  Telemetry,
+} from '@/types';
 
 const WS_PROTOCOL = 'haze.v1';
 
@@ -27,12 +35,19 @@ export class HttpAgentSource implements DataSource {
   private nodes: NodeInfo[] = [];
   private pairing: PairingState | undefined;
   private discovery: DiscoveryState | undefined;
+  private jobs: JobsState | undefined;
 
   subscribe(onUpdate: (update: ClusterUpdate) => void): () => void {
     const token = captureToken();
 
     const emit = (link: LinkState) =>
-      onUpdate({ nodes: this.nodes, link, pairing: this.pairing, discovery: this.discovery });
+      onUpdate({
+        nodes: this.nodes,
+        link,
+        pairing: this.pairing,
+        discovery: this.discovery,
+        jobs: this.jobs,
+      });
 
     if (!token) {
       // No token means the page was opened by hand rather than by `haze up`.
@@ -63,12 +78,27 @@ export class HttpAgentSource implements DataSource {
         const msg = JSON.parse(event.data as string) as
           | { type: 'snapshot' | 'telemetry'; data: Telemetry }
           | { type: 'pairing'; data: PairingState }
-          | { type: 'discovery'; data: DiscoveryState };
+          | { type: 'discovery'; data: DiscoveryState }
+          | { type: 'jobs'; data: JobsState }
+          | { type: 'job'; data: Job };
 
         if (msg.type === 'pairing') {
           this.pairing = msg.data;
         } else if (msg.type === 'discovery') {
           this.discovery = msg.data;
+        } else if (msg.type === 'jobs') {
+          this.jobs = msg.data;
+        } else if (msg.type === 'job') {
+          // A single job changed. Splice it in rather than refetching the
+          // whole list: job updates arrive several times a second while
+          // something is running.
+          this.jobs = this.jobs && {
+            ...this.jobs,
+            jobs: [
+              msg.data,
+              ...this.jobs.jobs.filter((j) => j.job_id !== msg.data.job_id),
+            ],
+          };
         } else if (msg.type === 'snapshot' || msg.type === 'telemetry') {
           this.nodes = [
             {
