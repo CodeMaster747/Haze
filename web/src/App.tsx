@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 
 import { NodeCard } from '@/components/cluster/NodeCard';
+import { NetworkPanel } from '@/components/discovery/NetworkPanel';
 import { Header } from '@/components/layout/Header';
 import { PairingPanel } from '@/components/pairing/PairingPanel';
 import { PeerList } from '@/components/pairing/PeerList';
@@ -9,7 +10,7 @@ import { Panel } from '@/components/ui/Panel';
 import { useCluster } from '@/stores/cluster';
 
 export default function App() {
-  const { nodes, link, pairing, isLive, connect } = useCluster();
+  const { nodes, link, pairing, discovery, isLive, connect } = useCluster();
 
   useEffect(() => connect(), [connect]);
 
@@ -40,9 +41,11 @@ export default function App() {
             </div>
 
             <div className="grid gap-4 lg:grid-cols-2">
-              <PairingPanel pairing={pairing} disabled={!isLive} />
+              <NetworkPanel discovery={discovery} disabled={!isLive} />
               <PeerList enabled={isLive} />
             </div>
+
+            <PairingPanel pairing={pairing} disabled={!isLive} />
           </>
         )}
       </main>

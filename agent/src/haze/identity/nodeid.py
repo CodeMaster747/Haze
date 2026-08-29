@@ -41,9 +41,26 @@ _GROUP_TOTAL = _GROUPS * (_GROUP + 1)  # 56
 def luhn_check_char(chunk: str) -> str:
     """Luhn mod-N check character over :data:`ALPHABET`.
 
-    Same construction as Syncthing's ``luhn.go``. Catches every single-character
-    substitution and every adjacent transposition, which are the two mistakes a
-    human actually makes when copying one of these.
+    Same construction as Syncthing's ``luhn.go``.
+
+    Measured detection rates over this alphabet (see tests/test_identity.py):
+
+    * single-character substitution -- **100%**
+    * adjacent transposition within a group's data -- **99.7%**
+    * swapping a group's last data character with its check character -- **0%**
+
+    That last case is structural, not a bug to fix: the check character is a
+    function of the data characters, so exchanging the final data character
+    with it changes both sides of the equation together. Luhn mod-N also misses
+    a small set of transposition pairs inherently -- decimal Luhn famously
+    misses 09/90, and larger alphabets have more such pairs.
+
+    This is a typo guard, not a security boundary. A node's identity is its
+    Ed25519 public key; everything that decides trust compares the raw key. The
+    check characters exist so that a human reading an ID aloud, or retyping one
+    off another screen, notices a mistake -- and for that, catching every
+    substitution and almost every transposition is the right trade for four
+    extra characters.
     """
     n = len(ALPHABET)
     factor = 1

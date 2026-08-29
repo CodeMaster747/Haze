@@ -21,12 +21,15 @@ async def all_peers() -> list[Peer]:
 
 async def get(node_id: str) -> Peer | None:
     async with session() as s:
-        return await s.get(Peer, node_id)
+        peer: Peer | None = await s.get(Peer, node_id)
+        return peer
 
 
 async def by_public_key(public_key: bytes) -> Peer | None:
+    """Look a peer up by its raw Ed25519 key -- the identity the handshake proves."""
     async with session() as s:
-        return await s.scalar(select(Peer).where(Peer.public_key == public_key))
+        peer: Peer | None = await s.scalar(select(Peer).where(Peer.public_key == public_key))
+        return peer
 
 
 async def trust_bundle() -> list[bytes]:

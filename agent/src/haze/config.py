@@ -164,11 +164,16 @@ def load_or_create(
         _write_secure_json(path, data)
         _log.debug("wrote %s", path)
 
+    # HAZE_BEACON_PORT lets `haze devnet` put its agents on their own
+    # discovery channel, so a devnet and a real agent on the same machine
+    # do not find each other and confuse the peer list.
+    beacon = int(os.environ.get("HAZE_BEACON_PORT") or data["beacon_port"])
+
     return Config(
         node_name=str(node_name or data["node_name"]),
         api_port=int(api_port or data["api_port"]),
         node_port=int(node_port or data["node_port"]),
-        beacon_port=int(data["beacon_port"]),
+        beacon_port=beacon,
         dashboard_token=str(data["dashboard_token"]),
     )
 

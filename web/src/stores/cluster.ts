@@ -1,12 +1,13 @@
 import { create } from 'zustand';
 
 import { createDataSource, type DataSource } from '@/data';
-import type { LinkState, NodeInfo, PairingState } from '@/types';
+import type { DiscoveryState, LinkState, NodeInfo, PairingState } from '@/types';
 
 interface ClusterState {
   nodes: NodeInfo[];
   link: LinkState;
   pairing: PairingState | null;
+  discovery: DiscoveryState | null;
   source: DataSource | null;
   /** True when this build talks to a real agent; false in the hosted demo. */
   isLive: boolean;
@@ -17,16 +18,22 @@ export const useCluster = create<ClusterState>((set) => ({
   nodes: [],
   link: 'connecting',
   pairing: null,
+  discovery: null,
   source: null,
   isLive: !__HAZE_DEMO__,
 
   connect: () => {
     const source = createDataSource();
     set({ source });
-    return source.subscribe(({ nodes, link, pairing }) =>
-      // `pairing` is omitted on telemetry-only ticks; keep the last value
-      // rather than blanking the dialog every second.
-      set((state) => ({ nodes, link, pairing: pairing ?? state.pairing })),
+    return source.subscribe(({ nodes, link, pairing, discovery }) =>
+      // `pairing` and `discovery` are omitted on telemetry-only ticks; keep the
+      // last value rather than blanking the dialog and node list every second.
+      set((state) => ({
+        nodes,
+        link,
+        pairing: pairing ?? state.pairing,
+        discovery: discovery ?? state.discovery,
+      })),
     );
   },
 }));

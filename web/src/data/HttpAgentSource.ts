@@ -9,7 +9,7 @@
 
 import type { ClusterUpdate, DataSource } from '@/data/DataSource';
 import { captureToken } from '@/data/token';
-import type { LinkState, NodeInfo, PairingState, Telemetry } from '@/types';
+import type { DiscoveryState, LinkState, NodeInfo, PairingState, Telemetry } from '@/types';
 
 const WS_PROTOCOL = 'haze.v1';
 
@@ -26,11 +26,13 @@ export class HttpAgentSource implements DataSource {
   private stopped = false;
   private nodes: NodeInfo[] = [];
   private pairing: PairingState | undefined;
+  private discovery: DiscoveryState | undefined;
 
   subscribe(onUpdate: (update: ClusterUpdate) => void): () => void {
     const token = captureToken();
 
-    const emit = (link: LinkState) => onUpdate({ nodes: this.nodes, link, pairing: this.pairing });
+    const emit = (link: LinkState) =>
+      onUpdate({ nodes: this.nodes, link, pairing: this.pairing, discovery: this.discovery });
 
     if (!token) {
       // No token means the page was opened by hand rather than by `haze up`.
@@ -60,17 +62,20 @@ export class HttpAgentSource implements DataSource {
         // socket would double the auth surface for one low-rate event stream.
         const msg = JSON.parse(event.data as string) as
           | { type: 'snapshot' | 'telemetry'; data: Telemetry }
-          | { type: 'pairing'; data: PairingState };
+          | { type: 'pairing'; data: PairingState }
+          | { type: 'discovery'; data: DiscoveryState };
 
         if (msg.type === 'pairing') {
           this.pairing = msg.data;
+        } else if (msg.type === 'discovery') {
+          this.discovery = msg.data;
         } else if (msg.type === 'snapshot' || msg.type === 'telemetry') {
           this.nodes = [
             {
               name: msg.data.node_name,
               node_id: null,
               status: 'online',
-              simulated: false,
+              simulated: msg.data.simulated ?? false,
               is_self: true,
               telemetry: msg.data,
             },

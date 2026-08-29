@@ -1,0 +1,20 @@
+# A synthetic Apple Silicon laptop -- the "weak client with a good screen" in
+# the project's motivating example.
+name = "laptop"
+cores = 10
+physical_cores = 10
+ram_bytes = 25769803776      # 24 GiB
+disk_bytes = 549755813888    # 512 GiB
+cpu_mean = 24.0
+speed_factor = 1.0
+
+[gpu]
+vendor = "apple"
+name = "Apple M4"
+utilisation_mean = 8.0
+# Unified memory: there is genuinely no separate VRAM pool, and the sudoless
+# ioreg path exposes no device total. The real Apple probe reports null here
+# too, so the simulated node behaves exactly like the real one.
+vram_total = 0
+vram_used = 0
+encoders = ["hevc_videotoolbox", "h264_videotoolbox"]

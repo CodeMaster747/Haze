@@ -36,6 +36,8 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 }
 
 export const api = {
+  addManualNode: (host: string, port = 0) =>
+    call<unknown>('POST', '/discovery/manual', { host, port }),
   listPeers: () => call<{ self: SelfNode; peers: PeerRow[] }>('GET', '/peers'),
   armPairing: (ttl_s = 180) => call<unknown>('POST', '/pairing/arm', { ttl_s }),
   disarmPairing: () => call<unknown>('POST', '/pairing/disarm'),

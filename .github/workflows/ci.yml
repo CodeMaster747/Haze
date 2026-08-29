@@ -38,7 +38,11 @@ jobs:
         run: ruff check agent
 
       - name: Typecheck
-        run: mypy agent/src/haze
+        # `cd agent` is load-bearing: mypy resolves its config relative to the
+        # working directory, so running it from the repo root finds no
+        # pyproject.toml and falls back to DEFAULT mode -- which passes while
+        # checking almost nothing.
+        run: cd agent && mypy src/haze
 
       - name: Test
         # The SPA-serving tests skip themselves when the bundle is absent, so

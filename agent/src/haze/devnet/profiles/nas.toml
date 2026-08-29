@@ -1,0 +1,10 @@
+# A synthetic storage box: lots of disk, little compute, no GPU. Exists to give
+# the scheduler a node that should win storage-bound placements and lose
+# everything else.
+name = "nas"
+cores = 4
+physical_cores = 4
+ram_bytes = 8589934592       # 8 GiB
+disk_bytes = 8796093022208   # 8 TiB
+cpu_mean = 6.0
+speed_factor = 0.4

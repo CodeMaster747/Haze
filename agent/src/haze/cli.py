@@ -13,7 +13,7 @@ import webbrowser
 import typer
 
 import haze
-from haze import cli_pairing, config, log
+from haze import cli_devnet, cli_pairing, config, log
 
 app = typer.Typer(
     name="haze",
@@ -28,6 +28,11 @@ def up(
     port: int = typer.Option(0, "--port", "-p", help="Dashboard port (default: 7433, scanning up)."),
     node_port: int = typer.Option(0, "--node-port", help="Port other nodes connect to (default: 8443)."),
     name: str = typer.Option("", "--name", "-n", help="Display name for this node."),
+    profile: str = typer.Option(
+        "", "--profile",
+        help="Report synthetic hardware from this profile instead of the real machine. "
+             "Nodes started this way are badged SIMULATED everywhere.",
+    ),
     open_browser: bool = typer.Option(True, "--open/--no-open", help="Open the dashboard."),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ) -> None:
@@ -54,6 +59,8 @@ def up(
     typer.secho(f"\n  Haze {haze.__version__}  ·  {cfg.node_name}  ({identity.short_id})",
                 fg=typer.colors.BRIGHT_WHITE)
     typer.secho(f"  Peers:   0.0.0.0:{cfg.node_port}", fg=typer.colors.BRIGHT_BLACK)
+    if profile:
+        typer.secho(f"  SIMULATED hardware — profile “{profile}”", fg=typer.colors.MAGENTA)
     typer.secho(f"  Console: {url}\n", fg=typer.colors.BRIGHT_MAGENTA)
 
     if open_browser:
@@ -64,7 +71,7 @@ def up(
     from haze.api.app import serve
 
     try:
-        asyncio.run(serve(cfg, actual_port))
+        asyncio.run(serve(cfg, actual_port, profile=profile or None))
     except KeyboardInterrupt:
         typer.echo("\nstopped")
     finally:
@@ -104,6 +111,7 @@ def open_console() -> None:
 
 
 app.add_typer(cli_pairing.pair_app, name="pair")
+app.add_typer(cli_devnet.devnet_app, name="devnet")
 app.command("peers")(cli_pairing.peers_command)
 app.command("unpair")(cli_pairing.unpair_command)
 app.command("id")(cli_pairing.id_command)

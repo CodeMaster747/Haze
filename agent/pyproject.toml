@@ -89,6 +89,11 @@ target-version = "py312"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
+# `×` in user-facing output ("relative speed ×4.2") is a deliberate
+# typographic choice, as are the dashes and curly quotes. These rules exist
+# to catch a Cyrillic `a` smuggled into an identifier, not to force ASCII on
+# prose a human reads.
+allowed-confusables = ["×", "−", "—", "–", "“", "”", "’", "→", "·"]
 select = [
     "E", "W",    # pycodestyle
     "F",         # pyflakes
@@ -127,7 +132,7 @@ plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
 # Ships no py.typed.  Imported lazily in probe/gpu_nvidia.py behind a try/except.
-module = ["pynvml.*"]
+module = ["pynvml", "pynvml.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

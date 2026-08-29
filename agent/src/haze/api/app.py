@@ -77,7 +77,14 @@ class _SecurityHeaders(BaseHTTPMiddleware):
         return response
 
 
-def create_app(cfg: Config, api_port: int, *, serve_peers: bool = True) -> FastAPI:
+def create_app(
+    cfg: Config,
+    api_port: int,
+    *,
+    serve_peers: bool = True,
+    discover: bool = True,
+    profile: str | None = None,
+) -> FastAPI:
     """Build the loopback app.
 
     ``serve_peers=False`` skips binding the node-to-node listener, which is what
@@ -88,10 +95,12 @@ def create_app(cfg: Config, api_port: int, *, serve_peers: bool = True) -> FastA
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        agent = await runtime.start(cfg, serve_peers=serve_peers)
+        agent = await runtime.start(
+            cfg, serve_peers=serve_peers, discover=discover, profile=profile
+        )
         app.state.agent = agent
 
-        hub = ws.TelemetryHub(cfg)
+        hub = ws.TelemetryHub(agent.probe)
         await hub.start()
         app.state.hub = hub
 
@@ -131,7 +140,7 @@ def create_app(cfg: Config, api_port: int, *, serve_peers: bool = True) -> FastA
                 "name": cfg.node_name,
                 "node_id": agent.node_id if agent else None,
                 "short_id": agent.identity.short_id if agent else None,
-                "simulated": False,       # M2: devnet profiles set this True
+                "simulated": agent.simulated if agent else False,
                 "api_port": api_port,
                 "node_port": cfg.node_port,
                 "version": haze.__version__,
@@ -150,7 +159,7 @@ def create_app(cfg: Config, api_port: int, *, serve_peers: bool = True) -> FastA
         await socket.accept(subprotocol=auth.subprotocol)
         hub: ws.TelemetryHub = app.state.hub
         agent: runtime.Agent | None = getattr(app.state, "agent", None)
-        await hub.serve(socket, agent.pairing if agent else None)
+        await hub.serve(socket, agent)
 
     # --- static SPA, mounted last so it never shadows /api or /ws ------------
     if (WEBUI_DIR / "index.html").is_file():
@@ -176,12 +185,12 @@ def create_app(cfg: Config, api_port: int, *, serve_peers: bool = True) -> FastA
     return app
 
 
-async def serve(cfg: Config, api_port: int) -> None:
+async def serve(cfg: Config, api_port: int, *, profile: str | None = None) -> None:
     """Run uvicorn bound to the 127.0.0.1 literal."""
     import uvicorn
 
     config = uvicorn.Config(
-        create_app(cfg, api_port),
+        create_app(cfg, api_port, profile=profile),
         # NEVER 0.0.0.0.  This server can execute subprocesses; exposing it to
         # the LAN would hand that to anyone on the same WiFi.  Node-to-node
         # traffic uses the mutually-authenticated TLS listener instead.

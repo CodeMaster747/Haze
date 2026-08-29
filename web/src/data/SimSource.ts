@@ -14,10 +14,13 @@
 import type { ClusterUpdate, DataSource } from '@/data/DataSource';
 import { PROFILES, type Profile } from '@/sim/profiles';
 import { mulberry32, ouStep } from '@/sim/rng';
-import type { NodeInfo, Telemetry } from '@/types';
+import type { DiscoveredNode, DiscoveryState, NodeInfo, Telemetry } from '@/types';
 
 const TICK_MS = 1_000;
 const DEFAULT_SEED = 0x48415a45; // "HAZE"
+
+/** Which profile the demo presents as "this machine". */
+const SELF_PROFILE = 'laptop';
 
 interface SimNode {
   profile: Profile;
@@ -55,6 +58,9 @@ export class SimSource implements DataSource {
         // inert pairing state keeps the UI on one code path rather than
         // needing to know which source it is rendering.
         pairing: { armed: false, arm_remaining_s: 0, pending: [], last_error: null },
+        // The demo cluster is pre-paired and pre-discovered by construction;
+        // there is no agent behind it to run mDNS or a beacon.
+        discovery: this.discoveryState(),
       });
 
     emit();
@@ -72,6 +78,30 @@ export class SimSource implements DataSource {
     return () => {
       if (this.timer !== null) window.clearInterval(this.timer);
       this.timer = null;
+    };
+  }
+
+  /** A plausible discovery view for the demo. Every entry is marked paired,
+   *  because the demo cannot show a pairing flow -- there is no second agent. */
+  private discoveryState(): DiscoveryState {
+    return {
+      mdns: true,
+      broadcast: true,
+      nodes: this.nodes
+        .filter((n) => n.profile.name !== SELF_PROFILE)
+        .map((n, i): DiscoveredNode => ({
+          node_id: `demo-${n.profile.name}`,
+          short_id: n.profile.name.slice(0, 7).toUpperCase(),
+          name: n.profile.name,
+          host: `192.168.1.${20 + i}`,
+          port: 8443,
+          sources: ['mdns', 'broadcast'],
+          platform: 'demo',
+          version: '0.1.0',
+          paired: true,
+          reachable: true,
+          age_s: 1,
+        })),
     };
   }
 
@@ -117,7 +147,7 @@ export class SimSource implements DataSource {
       node_id: null,
       status: 'online',
       simulated: true,
-      is_self: profile.name === 'laptop',
+      is_self: profile.name === SELF_PROFILE,
       telemetry,
     };
   }

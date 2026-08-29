@@ -46,6 +46,9 @@ export interface NetStats {
 
 export interface Telemetry {
   node_name: string;
+  /** True when this node's hardware is fabricated from a devnet profile.
+   *  Travels with every sample so nothing can render a node without knowing. */
+  simulated?: boolean;
   ts: number;
   uptime_s: number;
   cpu: CpuStats;
@@ -119,4 +122,34 @@ export interface PeerRow {
   last_port: number;
   paired_at: string;
   last_seen_at: string | null;
+}
+
+// --- discovery -------------------------------------------------------------
+
+export type DiscoverySource = 'mdns' | 'broadcast' | 'manual' | 'paired';
+
+export interface DiscoveredNode {
+  node_id: string;
+  short_id: string;
+  name: string;
+  host: string;
+  port: number;
+  /** Which mechanisms have seen it. Shown because "found by broadcast but not
+   *  mDNS" is the signature of multicast being filtered on this network, and
+   *  naming that saves someone an hour of guessing. */
+  sources: DiscoverySource[];
+  platform: string;
+  version: string;
+  paired: boolean;
+  /** null until probed. `false` while `sources` is non-empty is the
+   *  access-point-isolation signature: we can see it advertise but cannot
+   *  open a connection to it. */
+  reachable: boolean | null;
+  age_s: number;
+}
+
+export interface DiscoveryState {
+  mdns: boolean;
+  broadcast: boolean;
+  nodes: DiscoveredNode[];
 }

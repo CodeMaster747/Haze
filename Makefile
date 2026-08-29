@@ -23,7 +23,11 @@ check: check-agent check-web  ## Everything CI runs
 
 check-agent:  ## ruff + mypy strict + pytest
 	$(PY) -m ruff check agent
-	$(PY) -m mypy agent/src/haze
+# mypy MUST run from agent/. It resolves its config relative to the working
+# directory, so `mypy agent/src/haze` from here finds no pyproject.toml and
+# silently runs in DEFAULT mode -- reporting success while checking almost
+# nothing. Verify with `mypy src/haze -v | grep 'Config File'`.
+	cd agent && ../$(PY) -m mypy src/haze
 	$(PY) -m pytest agent/tests -q
 
 check-web:  ## eslint + tsc + vitest

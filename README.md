@@ -9,10 +9,11 @@ on the desktop's GPU, get the result back — with per-node limits you set.
 
 No cloud provider, no account, no bill. You own every node.
 
-> **Status: early.** Milestones 0–1 of 6 are complete — the agent, the loopback
-> dashboard, live telemetry, and device pairing over mutually-authenticated
-> TLS 1.3. Discovery, jobs and the scheduler are next. See
-> [Roadmap](#roadmap) for exactly what works today.
+> **Status: early.** Milestones 0–2 of 6 are complete — the agent, the loopback
+> dashboard, live telemetry, pairing over mutually-authenticated TLS 1.3, LAN
+> discovery, and a simulated multi-node cluster you can run on one machine.
+> Jobs and the scheduler are next. See [Roadmap](#roadmap) for exactly what
+> works today.
 
 ---
 
@@ -74,10 +75,47 @@ two screens disagree. See [SECURITY.md](SECURITY.md).
 haze devnet up -n 4 --open
 ```
 
-Starts four agents with synthetic hardware profiles — a fake workstation with an
-RTX 4090, a NAS, and so on — so you can see the whole system work without owning
-four computers. **Every simulated node is badged as such**, in the UI, in CLI
-output and in screenshots. See [Simulated vs real](#simulated-vs-real).
+```
+  SIMULATED CLUSTER
+  These nodes report fabricated hardware. Nothing here is a real GPU.
+
+  • workstation    16c   64 GiB  RTX 4090     ×4.2
+  • laptop         10c   24 GiB  Apple M4     ×1.0
+  • nas             4c    8 GiB  no GPU       ×0.4
+  • builder        12c   32 GiB  Arc A770     ×2.1
+```
+
+Four **real** agents — real identities, real TLS, real discovery — reporting
+fabricated hardware, so the whole system is legible without owning four
+computers. They find each other over mDNS and UDP broadcast on loopback, which
+exercises the actual discovery path rather than a fixture.
+
+**Every simulated node is badged as such**, in the dashboard, in CLI output and
+in the API payload. See [Simulated vs real](#simulated-vs-real).
+
+Not docker-compose, deliberately: Compose V2 broke per-replica port ranges
+(docker/compose #8530, still open), Docker Desktop for Mac has no GPU
+passthrough, and its `--network=host` does not behave like Linux's — which
+would break the multicast this is meant to exercise.
+
+## Discovery
+
+Three mechanisms, run together rather than as a fallback chain:
+
+| | Finds | Fails when |
+|---|---|---|
+| **mDNS** (`_haze._tcp`) | across the subnet | multicast is filtered — mesh APs with IGMP snooping, `avahi-daemon` holding UDP 5353 |
+| **UDP broadcast** | the local segment | the network blocks broadcast, or the peer is on another subnet |
+| **By address** | anything routable | never — which is why it is always available, not hidden behind a failure state |
+
+They fail in uncorrelated ways, so the union finds strictly more — and the
+*difference* is diagnostic. A node seen by broadcast but never by mDNS means
+multicast is being dropped, and the dashboard says so.
+
+One case no discovery mechanism can fix: if an access point isolates clients
+from each other (default on most guest networks), Haze detects it — the node
+advertises but no connection can be opened — and names it, rather than showing
+a timeout that sends you hunting in the wrong place.
 
 ## Architecture
 
@@ -123,7 +161,9 @@ the contract:
 | | Real | Simulated |
 |---|---|---|
 | CPU / RAM / disk telemetry | ✅ live from `psutil` | seeded mean-reverting walk |
-| GPU telemetry | ✅ NVIDIA via NVML; Apple Silicon utilisation via `ioreg` | fabricated from a profile |
+| GPU telemetry | ✅ NVIDIA via NVML; Apple Silicon via `ioreg`, no root needed | fabricated from a profile |
+| Hardware encoders | ✅ probed from `ffmpeg -encoders` | listed in the profile |
+| Discovery | ✅ real mDNS + UDP broadcast | pre-populated |
 | Node identity, pairing, TLS | ✅ real Ed25519 + TLS 1.3 | n/a — demo nodes are pre-paired |
 | Job execution | ✅ real subprocesses | `sleep(work / speed_factor)` |
 | The scheduler's decision | ✅ **the same algorithm in both** | ✅ same |
@@ -144,8 +184,8 @@ utilisation on Apple Silicon is available without root; VRAM breakdown is not.
 |---|---|---|
 | M0 | Agent, loopback dashboard, live telemetry, CI | ✅ done |
 | M1 | Ed25519 identity, TLS 1.3 transport, SAS pairing | ✅ done |
-| M2 | LAN discovery, resource probes, `haze devnet` | next |
-| M3 | Job submission, execution, progress, file transfer | |
+| M2 | LAN discovery, resource probes, `haze devnet` | ✅ done |
+| M3 | Job submission, execution, progress, file transfer | next |
 | M4 | Scheduler + `haze explain` + conformance corpus | |
 | M5 | The in-browser simulated cluster (deployed demo) | |
 | M6 | Real two-machine benchmark, chaos commands, docs | |

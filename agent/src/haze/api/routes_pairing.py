@@ -81,6 +81,35 @@ async def reject(request: Request, body: DecisionRequest) -> JSONResponse:
     return JSONResponse({"ok": True})
 
 
+@router.get("/discovery")
+async def discovery_state(request: Request) -> JSONResponse:
+    """Everything this node currently believes is on the network."""
+    agent = _agent(request)
+    if agent.discovery is None:
+        return JSONResponse({"mdns": False, "broadcast": False, "nodes": []})
+    return JSONResponse(agent.discovery.state())
+
+
+class ManualNodeRequest(BaseModel):
+    host: str
+    port: int = Field(default=0, ge=0, le=65535)
+
+
+@router.post("/discovery/manual")
+async def add_manual(request: Request, body: ManualNodeRequest) -> JSONResponse:
+    """Add a node by address.
+
+    Always available, never hidden behind a "discovery failed" state: on a
+    guest SSID with client isolation no discovery mechanism can work, and the
+    user needs a path in that does not depend on one.
+    """
+    agent = _agent(request)
+    if agent.discovery is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "discovery is disabled")
+    agent.discovery.add_manual(body.host, body.port or agent.cfg.node_port)
+    return JSONResponse(agent.discovery.state())
+
+
 @router.get("/peers")
 async def list_peers(request: Request) -> JSONResponse:
     agent = _agent(request)

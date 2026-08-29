@@ -1,0 +1,26 @@
+# A synthetic high-end desktop. Used by `haze devnet` so the whole system can
+# be demonstrated on one laptop.
+#
+# Every node built from a profile is badged SIMULATED in the dashboard, in CLI
+# output and in the API payload. That badge is a correctness requirement, not
+# decoration: an unbadged fake RTX 4090 on a machine with no NVIDIA GPU would
+# be indistinguishable from a lie.
+name = "workstation"
+cores = 16
+physical_cores = 16
+ram_bytes = 68719476736      # 64 GiB
+disk_bytes = 2199023255552   # 2 TiB
+
+# Baseline load this machine idles at, as a percentage.
+cpu_mean = 18.0
+# Relative compute throughput. 1.0 is the laptop profile's baseline; the
+# scheduler uses this to predict how long a job would take here.
+speed_factor = 4.2
+
+[gpu]
+vendor = "nvidia"
+name = "RTX 4090"
+utilisation_mean = 12.0
+vram_total = 25769803776     # 24 GiB
+vram_used = 2147483648
+encoders = ["av1_nvenc", "hevc_nvenc", "h264_nvenc"]

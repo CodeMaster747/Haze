@@ -1,0 +1,18 @@
+# A synthetic mid-range Linux desktop with an Intel iGPU. Rounds out the
+# devnet: enough CPU to be a plausible winner, QuickSync rather than NVENC, so
+# encoder-aware placement has something to actually choose between.
+name = "builder"
+cores = 12
+physical_cores = 6
+ram_bytes = 34359738368      # 32 GiB
+disk_bytes = 1099511627776   # 1 TiB
+cpu_mean = 31.0
+speed_factor = 2.1
+
+[gpu]
+vendor = "intel"
+name = "Arc A770"
+utilisation_mean = 15.0
+vram_total = 17179869184     # 16 GiB
+vram_used = 1073741824
+encoders = ["av1_qsv", "hevc_qsv", "h264_qsv"]
