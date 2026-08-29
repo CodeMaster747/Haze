@@ -1,0 +1,1386 @@
+[
+  {
+    "expected": {
+      "assessments": [
+        {
+          "dimensions": {
+            "affinity": 1.0,
+            "headroom": 0.85,
+            "speed": 1.0,
+            "transfer": 0.9946
+          },
+          "eligible": true,
+          "estimated_seconds": 165.1821,
+          "name": "workstation",
+          "node_id": "DESKTOP",
+          "reasons": [
+            "0.9s moving 51200 KiB each way (0% of the total)",
+            "~164.29s of compute at 4.2\u00d7",
+            "GPU: RTX 4090"
+          ],
+          "score": 1.0
+        },
+        {
+          "dimensions": {
+            "affinity": 1.0,
+            "headroom": 0.75,
+            "speed": 0.219,
+            "transfer": 1.0
+          },
+          "eligible": true,
+          "estimated_seconds": 750.0,
+          "name": "laptop",
+          "node_id": "LAPTOP1",
+          "reasons": [
+            "runs here \u2014 nothing to transfer",
+            "~750s of compute at 1\u00d7",
+            "GPU: Apple M4"
+          ],
+          "score": 0.2202
+        },
+        {
+          "dimensions": {},
+          "eligible": false,
+          "estimated_seconds": 0.0,
+          "name": "nas",
+          "node_id": "NASBOX1",
+          "reasons": [
+            "does not have blender"
+          ],
+          "score": 0.0
+        }
+      ],
+      "chosen": "DESKTOP",
+      "summary": "workstation \u2014 584.82s faster than laptop end to end"
+    },
+    "job": {
+      "cpu_cores": 4,
+      "input_bytes": 52428800,
+      "needs_gpu": true,
+      "preferred_encoders": [],
+      "ram_bytes": 2147483648,
+      "runtime": "blender",
+      "work_units": 600.0
+    },
+    "name": "gpu render goes to the fast machine",
+    "nodes": [
+      {
+        "cores": 10,
+        "cpu_percent": 25.0,
+        "encoders": [
+          "h264_videotoolbox"
+        ],
+        "gpu_name": "Apple M4",
+        "has_gpu": true,
+        "is_self": true,
+        "latency_ms": 0.0,
+        "name": "laptop",
+        "node_id": "LAPTOP1",
+        "online": true,
+        "ram_available": 12884901888,
+        "ram_total": 25769803776,
+        "runtimes": [
+          "hashbench",
+          "blender"
+        ],
+        "simulated": false,
+        "speed_factor": 1.0,
+        "throughput_mbps": 1000.0
+      },
+      {
+        "cores": 16,
+        "cpu_percent": 15.0,
+        "encoders": [
+          "h264_nvenc",
+          "hevc_nvenc",
+          "av1_nvenc"
+        ],
+        "gpu_name": "RTX 4090",
+        "has_gpu": true,
+        "is_self": false,
+        "latency_ms": 2.0,
+        "name": "workstation",
+        "node_id": "DESKTOP",
+        "online": true,
+        "ram_available": 51539607552,
+        "ram_total": 68719476736,
+        "runtimes": [
+          "hashbench",
+          "blender",
+          "ffmpeg"
+        ],
+        "simulated": false,
+        "speed_factor": 4.2,
+        "throughput_mbps": 940.0
+      },
+      {
+        "cores": 4,
+        "cpu_percent": 5.0,
+        "encoders": [],
+        "gpu_name": "",
+        "has_gpu": false,
+        "is_self": false,
+        "latency_ms": 8.0,
+        "name": "nas",
+        "node_id": "NASBOX1",
+        "online": true,
+        "ram_available": 6442450944,
+        "ram_total": 8589934592,
+        "runtimes": [
+          "hashbench"
+        ],
+        "simulated": false,
+        "speed_factor": 0.4,
+        "throughput_mbps": 90.0
+      }
+    ]
+  },
+  {
+    "expected": {
+      "assessments": [
+        {
+          "dimensions": {
+            "affinity": 1.0,
+            "headroom": 0.85,
+            "speed": 1.0,
+            "transfer": 1.0
+          },
+          "eligible": true,
+          "estimated_seconds": 0.5476,
+          "name": "workstation",
+          "node_id": "DESKTOP",
+          "reasons": [
+            "~0.55s of compute at 4.2\u00d7"
+          ],
+          "score": 1.0
+        },
+        {
+          "dimensions": {
+            "affinity": 1.0,
+            "headroom": 0.75,
+            "speed": 0.219,
+            "transfer": 1.0
+          },
+          "eligible": true,
+          "estimated_seconds": 2.5,
+          "name": "laptop",
+          "node_id": "LAPTOP1",
+          "reasons": [
+            "runs here \u2014 nothing to transfer",
+            "~2.5s of compute at 1\u00d7"
+          ],
+          "score": 0.219
+        },
+        {
+          "dimensions": {
+            "affinity": 1.0,
+            "headroom": 0.95,
+            "speed": 0.1043,
+            "transfer": 1.0
+          },
+          "eligible": true,
+          "estimated_seconds": 5.25,
+          "name": "nas",
+          "node_id": "NASBOX1",
+          "reasons": [
+            "~5.25s of compute at 0.4\u00d7"
+          ],
+          "score": 0.1043
+        }
+      ],
+      "chosen": "DESKTOP",
+      "summary": "workstation \u2014 1.95s faster than laptop end to end"
+    },
+    "job": {
+      "cpu_cores": 1,
+      "input_bytes": 0,
+      "needs_gpu": false,
+      "preferred_encoders": [],
+      "ram_bytes": 268435456,
+      "runtime": "hashbench",
+      "work_units": 2.0
+    },
+    "name": "tiny job with no inputs still goes to the fast machine",
+    "nodes": [
+      {
+        "cores": 10,
+        "cpu_percent": 25.0,
+        "encoders": [
+          "h264_videotoolbox"
+        ],
+        "gpu_name": "Apple M4",
+        "has_gpu": true,
+        "is_self": true,
+        "latency_ms": 0.0,
+        "name": "laptop",
+        "node_id": "LAPTOP1",
+        "online": true,
+        "ram_available": 12884901888,
+        "ram_total": 25769803776,
+        "runtimes": [
+          "hashbench",
+          "blender"
+        ],
+        "simulated": false,
+        "speed_factor": 1.0,
+        "throughput_mbps": 1000.0
+      },
+      {
+        "cores": 16,
+        "cpu_percent": 15.0,
+        "encoders": [
+          "h264_nvenc",
+          "hevc_nvenc",
+          "av1_nvenc"
+        ],
+        "gpu_name": "RTX 4090",
+        "has_gpu": true,
+        "is_self": false,
+        "latency_ms": 2.0,
+        "name": "workstation",
+        "node_id": "DESKTOP",
+        "online": true,
+        "ram_available": 51539607552,
+        "ram_total": 68719476736,
+        "runtimes": [
+          "hashbench",
+          "blender",
+          "ffmpeg"
+        ],
+        "simulated": false,
+        "speed_factor": 4.2,
+        "throughput_mbps": 940.0
+      },
+      {
+        "cores": 4,
+        "cpu_percent": 5.0,
+        "encoders": [],
+        "gpu_name": "",
+        "has_gpu": false,
+        "is_self": false,
+        "latency_ms": 8.0,
+        "name": "nas",
+        "node_id": "NASBOX1",
+        "online": true,
+        "ram_available": 6442450944,
+        "ram_total": 8589934592,
+        "runtimes": [
+          "hashbench"
+        ],
+        "simulated": false,
+        "speed_factor": 0.4,
+        "throughput_mbps": 90.0
+      }
+    ]
+  },
+  {
+    "expected": {
+      "assessments": [
+        {
+          "dimensions": {
+            "affinity": 1.0,
+            "headroom": 0.75,
+            "speed": 0.219,
+            "transfer": 1.0
+          },
+          "eligible": true,
+          "estimated_seconds": 10.0,
+          "name": "laptop",
+          "node_id": "LAPTOP1",
+          "reasons": [
+            "runs here \u2014 nothing to transfer",
+            "~10s of compute at 1\u00d7"
+          ],
+          "score": 1.0
+        },
+        {
+          "dimensions": {
+            "affinity": 1.0,
+            "headroom": 0.85,
+            "speed": 1.0,
+            "transfer": 0.12
+          },
+          "eligible": true,
+          "estimated_seconds": 18.2578,
+          "name": "workstation",
+          "node_id": "DESKTOP",
+          "reasons": [
+            "16.07s moving 921600 KiB each way (88% of the total)",
+            "~2.19s of compute at 4.2\u00d7"
+          ],
+          "score": 0.5477
+        },
+        {
+          "dimensions": {},
+          "eligible": false,
+          "estimated_seconds": 0.0,
+          "name": "nas",
+          "node_id": "NASBOX1",
+          "reasons": [
+            "does not have blender"
+          ],
+          "score": 0.0
+        }
+      ],
+      "chosen": "LAPTOP1",
+      "summary": "laptop \u2014 workstation computes faster but is 8.26s slower end to end once transfer is counted"
+    },
+    "job": {
+      "cpu_cores": 2,
+      "input_bytes": 943718400,
+      "needs_gpu": false,
+      "preferred_encoders": [],
+      "ram_bytes": 1073741824,
+      "runtime": "blender",
+      "work_units": 8.0
+    },
+    "name": "a big upload beats a fast CPU",
+    "nodes": [
+      {
+        "cores": 10,
+        "cpu_percent": 25.0,
+        "encoders": [
+          "h264_videotoolbox"
+        ],
+        "gpu_name": "Apple M4",
+        "has_gpu": true,
+        "is_self": true,
+        "latency_ms": 0.0,
+        "name": "laptop",
+        "node_id": "LAPTOP1",
+        "online": true,
+        "ram_available": 12884901888,
+        "ram_total": 25769803776,
+        "runtimes": [
+          "hashbench",
+          "blender"
+        ],
+        "simulated": false,
+        "speed_factor": 1.0,
+        "throughput_mbps": 1000.0
+      },
+      {
+        "cores": 16,
+        "cpu_percent": 15.0,
+        "encoders": [
+          "h264_nvenc",
+          "hevc_nvenc",
+          "av1_nvenc"
+        ],
+        "gpu_name": "RTX 4090",
+        "has_gpu": true,
+        "is_self": false,
+        "latency_ms": 2.0,
+        "name": "workstation",
+        "node_id": "DESKTOP",
+        "online": true,
+        "ram_available": 51539607552,
+        "ram_total": 68719476736,
+        "runtimes": [
+          "hashbench",
+          "blender",
+          "ffmpeg"
+        ],
+        "simulated": false,
+        "speed_factor": 4.2,
+        "throughput_mbps": 940.0
+      },
+      {
+        "cores": 4,
+        "cpu_percent": 5.0,
+        "encoders": [],
+        "gpu_name": "",
+        "has_gpu": false,
+        "is_self": false,
+        "latency_ms": 8.0,
+        "name": "nas",
+        "node_id": "NASBOX1",
+        "online": true,
+        "ram_available": 6442450944,
+        "ram_total": 8589934592,
+        "runtimes": [
+          "hashbench"
+        ],
+        "simulated": false,
+        "speed_factor": 0.4,
+        "throughput_mbps": 90.0
+      }
+    ]
+  },
+  {
+    "expected": {
+      "assessments": [
+        {
+          "dimensions": {
+            "affinity": 1.0,
+            "headroom": 0.85,
+            "speed": 1.0,
+            "transfer": 0.9785
+          },
+          "eligible": true,
+          "estimated_seconds": 16.7895,
+          "name": "workstation",
+          "node_id": "DESKTOP",
+          "reasons": [
+            "0.36s moving 20480 KiB each way (2% of the total)",
+            "~16.43s of compute at 4.2\u00d7",
+            "has h264_nvenc"
+          ],
+          "score": 1.0
+        },
+        {
+          "dimensions": {},
+          "eligible": false,
+          "estimated_seconds": 0.0,
+          "name": "laptop",
+          "node_id": "LAPTOP1",
+          "reasons": [
+            "does not have ffmpeg"
+          ],
+          "score": 0.0
+        },
+        {
+          "dimensions": {},
+          "eligible": false,
+          "estimated_seconds": 0.0,
+          "name": "nas",
+          "node_id": "NASBOX1",
+          "reasons": [
+            "does not have ffmpeg"
+          ],
+          "score": 0.0
+        }
+      ],
+      "chosen": "DESKTOP",
+      "summary": "workstation was the only node that could run it"
+    },
+    "job": {
+      "cpu_cores": 2,
+      "input_bytes": 20971520,
+      "needs_gpu": false,
+      "preferred_encoders": [
+        "h264_nvenc"
+      ],
+      "ram_bytes": 1073741824,
+      "runtime": "ffmpeg",
+      "work_units": 60.0
+    },
+    "name": "only one node has the runtime",
+    "nodes": [
+      {
+        "cores": 10,
+        "cpu_percent": 25.0,
+        "encoders": [
+          "h264_videotoolbox"
+        ],
+        "gpu_name": "Apple M4",
+        "has_gpu": true,
+        "is_self": true,
+        "latency_ms": 0.0,
+        "name": "laptop",
+        "node_id": "LAPTOP1",
+        "online": true,
+        "ram_available": 12884901888,
+        "ram_total": 25769803776,
+        "runtimes": [
+          "hashbench",
+          "blender"
+        ],
+        "simulated": false,
+        "speed_factor": 1.0,
+        "throughput_mbps": 1000.0
+      },
+      {
+        "cores": 16,
+        "cpu_percent": 15.0,
+        "encoders": [
+          "h264_nvenc",
+          "hevc_nvenc",
+          "av1_nvenc"
+        ],
+        "gpu_name": "RTX 4090",
+        "has_gpu": true,
+        "is_self": false,
+        "latency_ms": 2.0,
+        "name": "workstation",
+        "node_id": "DESKTOP",
+        "online": true,
+        "ram_available": 51539607552,
+        "ram_total": 68719476736,
+        "runtimes": [
+          "hashbench",
+          "blender",
+          "ffmpeg"
+        ],
+        "simulated": false,
+        "speed_factor": 4.2,
+        "throughput_mbps": 940.0
+      },
+      {
+        "cores": 4,
+        "cpu_percent": 5.0,
+        "encoders": [],
+        "gpu_name": "",
+        "has_gpu": false,
+        "is_self": false,
+        "latency_ms": 8.0,
+        "name": "nas",
+        "node_id": "NASBOX1",
+        "online": true,
+        "ram_available": 6442450944,
+        "ram_total": 8589934592,
+        "runtimes": [
+          "hashbench"
+        ],
+        "simulated": false,
+        "speed_factor": 0.4,
+        "throughput_mbps": 90.0
+      }
+    ]
+  },
+  {
+    "expected": {
+      "assessments": [
+        {
+          "dimensions": {},
+          "eligible": false,
+          "estimated_seconds": 0.0,
+          "name": "laptop",
+          "node_id": "LAPTOP1",
+          "reasons": [
+            "does not have ffmpeg"
+          ],
+          "score": 0.0
+        },
+        {
+          "dimensions": {},
+          "eligible": false,
+          "estimated_seconds": 0.0,
+          "name": "nas",
+          "node_id": "NASBOX1",
+          "reasons": [
+            "does not have ffmpeg"
+          ],
+          "score": 0.0
+        }
+      ],
+      "chosen": null,
+      "summary": "no node can run ffmpeg: laptop does not have ffmpeg; nas does not have ffmpeg"
+    },
+    "job": {
+      "cpu_cores": 1,
+      "input_bytes": 0,
+      "needs_gpu": false,
+      "preferred_encoders": [],
+      "ram_bytes": 1073741824,
+      "runtime": "ffmpeg",
+      "work_units": 10.0
+    },
+    "name": "nobody has the runtime",
+    "nodes": [
+      {
+        "cores": 10,
+        "cpu_percent": 25.0,
+        "encoders": [
+          "h264_videotoolbox"
+        ],
+        "gpu_name": "Apple M4",
+        "has_gpu": true,
+        "is_self": true,
+        "latency_ms": 0.0,
+        "name": "laptop",
+        "node_id": "LAPTOP1",
+        "online": true,
+        "ram_available": 12884901888,
+        "ram_total": 25769803776,
+        "runtimes": [
+          "hashbench",
+          "blender"
+        ],
+        "simulated": false,
+        "speed_factor": 1.0,
+        "throughput_mbps": 1000.0
+      },
+      {
+        "cores": 4,
+        "cpu_percent": 5.0,
+        "encoders": [],
+        "gpu_name": "",
+        "has_gpu": false,
+        "is_self": false,
+        "latency_ms": 8.0,
+        "name": "nas",
+        "node_id": "NASBOX1",
+        "online": true,
+        "ram_available": 6442450944,
+        "ram_total": 8589934592,
+        "runtimes": [
+          "hashbench"
+        ],
+        "simulated": false,
+        "speed_factor": 0.4,
+        "throughput_mbps": 90.0
+      }
+    ]
+  },
+  {
+    "expected": {
+      "assessments": [
+        {
+          "dimensions": {
+            "affinity": 1.0,
+            "headroom": 0.05,
+            "speed": 1.0,
+            "transfer": 1.0
+          },
+          "eligible": true,
+          "estimated_seconds": 46.4286,
+          "name": "workstation",
+          "node_id": "DESKTOP",
+          "reasons": [
+            "~46.43s of compute at 4.2\u00d7",
+            "busy \u2014 95% CPU already"
+          ],
+          "score": 1.0
+        },
+        {
+          "dimensions": {
+            "affinity": 1.0,
+            "headroom": 0.95,
+            "speed": 0.4422,
+            "transfer": 1.0
+          },
+          "eligible": true,
+          "estimated_seconds": 105.0,
+          "name": "laptop",
+          "node_id": "LAPTOP1",
+          "reasons": [
+            "runs here \u2014 nothing to transfer",
+            "~105s of compute at 1\u00d7"
+          ],
+          "score": 0.4422
+        },
+        {
+          "dimensions": {
+            "affinity": 1.0,
+            "headroom": 0.95,
+            "speed": 0.1769,
+            "transfer": 1.0
+          },
+          "eligible": true,
+          "estimated_seconds": 262.5,
+          "name": "nas",
+          "node_id": "NASBOX1",
+          "reasons": [
+            "~262.5s of compute at 0.4\u00d7"
+          ],
+          "score": 0.1769
+        }
+      ],
+      "chosen": "DESKTOP",
+      "summary": "workstation \u2014 58.57s faster than laptop end to end"
+    },
+    "job": {
+      "cpu_cores": 1,
+      "input_bytes": 0,
+      "needs_gpu": false,
+      "preferred_encoders": [],
+      "ram_bytes": 1073741824,
+      "runtime": "hashbench",
+      "work_units": 100.0
+    },
+    "name": "the fast machine is busy",
+    "nodes": [
+      {
+        "cores": 10,
+        "cpu_percent": 5.0,
+        "encoders": [
+          "h264_videotoolbox"
+        ],
+        "gpu_name": "Apple M4",
+        "has_gpu": true,
+        "is_self": true,
+        "latency_ms": 0.0,
+        "name": "laptop",
+        "node_id": "LAPTOP1",
+        "online": true,
+        "ram_available": 12884901888,
+        "ram_total": 25769803776,
+        "runtimes": [
+          "hashbench",
+          "blender"
+        ],
+        "simulated": false,
+        "speed_factor": 1.0,
+        "throughput_mbps": 1000.0
+      },
+      {
+        "cores": 16,
+        "cpu_percent": 95.0,
+        "encoders": [
+          "h264_nvenc",
+          "hevc_nvenc",
+          "av1_nvenc"
+        ],
+        "gpu_name": "RTX 4090",
+        "has_gpu": true,
+        "is_self": false,
+        "latency_ms": 2.0,
+        "name": "workstation",
+        "node_id": "DESKTOP",
+        "online": true,
+        "ram_available": 51539607552,
+        "ram_total": 68719476736,
+        "runtimes": [
+          "hashbench",
+          "blender",
+          "ffmpeg"
+        ],
+        "simulated": false,
+        "speed_factor": 4.2,
+        "throughput_mbps": 940.0
+      },
+      {
+        "cores": 4,
+        "cpu_percent": 5.0,
+        "encoders": [],
+        "gpu_name": "",
+        "has_gpu": false,
+        "is_self": false,
+        "latency_ms": 8.0,
+        "name": "nas",
+        "node_id": "NASBOX1",
+        "online": true,
+        "ram_available": 6442450944,
+        "ram_total": 8589934592,
+        "runtimes": [
+          "hashbench"
+        ],
+        "simulated": false,
+        "speed_factor": 0.4,
+        "throughput_mbps": 90.0
+      }
+    ]
+  },
+  {
+    "expected": {
+      "assessments": [
+        {
+          "dimensions": {
+            "affinity": 1.0,
+            "headroom": 0.75,
+            "speed": 1.0,
+            "transfer": 1.0
+          },
+          "eligible": true,
+          "estimated_seconds": 62.5,
+          "name": "laptop",
+          "node_id": "LAPTOP1",
+          "reasons": [
+            "runs here \u2014 nothing to transfer",
+            "~62.5s of compute at 1\u00d7"
+          ],
+          "score": 1.0
+        },
+        {
+          "dimensions": {
+            "affinity": 1.0,
+            "headroom": 0.95,
+            "speed": 0.4762,
+            "transfer": 1.0
+          },
+          "eligible": true,
+          "estimated_seconds": 131.25,
+          "name": "nas",
+          "node_id": "NASBOX1",
+          "reasons": [
+            "~131.25s of compute at 0.4\u00d7"
+          ],
+          "score": 0.4762
+        },
+        {
+          "dimensions": {},
+          "eligible": false,
+          "estimated_seconds": 0.0,
+          "name": "workstation",
+          "node_id": "DESKTOP",
+          "reasons": [
+            "offline"
+          ],
+          "score": 0.0
+        }
+      ],
+      "chosen": "LAPTOP1",
+      "summary": "laptop \u2014 68.75s faster than nas end to end"
+    },
+    "job": {
+      "cpu_cores": 1,
+      "input_bytes": 0,
+      "needs_gpu": false,
+      "preferred_encoders": [],
+      "ram_bytes": 1073741824,
+      "runtime": "hashbench",
+      "work_units": 50.0
+    },
+    "name": "the fast machine is offline",
+    "nodes": [
+      {
+        "cores": 10,
+        "cpu_percent": 25.0,
+        "encoders": [
+          "h264_videotoolbox"
+        ],
+        "gpu_name": "Apple M4",
+        "has_gpu": true,
+        "is_self": true,
+        "latency_ms": 0.0,
+        "name": "laptop",
+        "node_id": "LAPTOP1",
+        "online": true,
+        "ram_available": 12884901888,
+        "ram_total": 25769803776,
+        "runtimes": [
+          "hashbench",
+          "blender"
+        ],
+        "simulated": false,
+        "speed_factor": 1.0,
+        "throughput_mbps": 1000.0
+      },
+      {
+        "cores": 16,
+        "cpu_percent": 15.0,
+        "encoders": [
+          "h264_nvenc",
+          "hevc_nvenc",
+          "av1_nvenc"
+        ],
+        "gpu_name": "RTX 4090",
+        "has_gpu": true,
+        "is_self": false,
+        "latency_ms": 2.0,
+        "name": "workstation",
+        "node_id": "DESKTOP",
+        "online": false,
+        "ram_available": 51539607552,
+        "ram_total": 68719476736,
+        "runtimes": [
+          "hashbench",
+          "blender",
+          "ffmpeg"
+        ],
+        "simulated": false,
+        "speed_factor": 4.2,
+        "throughput_mbps": 940.0
+      },
+      {
+        "cores": 4,
+        "cpu_percent": 5.0,
+        "encoders": [],
+        "gpu_name": "",
+        "has_gpu": false,
+        "is_self": false,
+        "latency_ms": 8.0,
+        "name": "nas",
+        "node_id": "NASBOX1",
+        "online": true,
+        "ram_available": 6442450944,
+        "ram_total": 8589934592,
+        "runtimes": [
+          "hashbench"
+        ],
+        "simulated": false,
+        "speed_factor": 0.4,
+        "throughput_mbps": 90.0
+      }
+    ]
+  },
+  {
+    "expected": {
+      "assessments": [
+        {
+          "dimensions": {
+            "affinity": 1.0,
+            "headroom": 0.85,
+            "speed": 1.0,
+            "transfer": 0.9934
+          },
+          "eligible": true,
+          "estimated_seconds": 27.5634,
+          "name": "workstation",
+          "node_id": "DESKTOP",
+          "reasons": [
+            "0.18s moving 10240 KiB each way (0% of the total)",
+            "~27.38s of compute at 4.2\u00d7"
+          ],
+          "score": 1.0
+        },
+        {
+          "dimensions": {},
+          "eligible": false,
+          "estimated_seconds": 0.0,
+          "name": "laptop",
+          "node_id": "LAPTOP1",
+          "reasons": [
+            "has 1024 MiB free, job needs 8192 MiB"
+          ],
+          "score": 0.0
+        },
+        {
+          "dimensions": {},
+          "eligible": false,
+          "estimated_seconds": 0.0,
+          "name": "nas",
+          "node_id": "NASBOX1",
+          "reasons": [
+            "does not have blender"
+          ],
+          "score": 0.0
+        }
+      ],
+      "chosen": "DESKTOP",
+      "summary": "workstation was the only node that could run it"
+    },
+    "job": {
+      "cpu_cores": 2,
+      "input_bytes": 10485760,
+      "needs_gpu": false,
+      "preferred_encoders": [],
+      "ram_bytes": 8589934592,
+      "runtime": "blender",
+      "work_units": 100.0
+    },
+    "name": "memory rules a node out",
+    "nodes": [
+      {
+        "cores": 10,
+        "cpu_percent": 25.0,
+        "encoders": [
+          "h264_videotoolbox"
+        ],
+        "gpu_name": "Apple M4",
+        "has_gpu": true,
+        "is_self": true,
+        "latency_ms": 0.0,
+        "name": "laptop",
+        "node_id": "LAPTOP1",
+        "online": true,
+        "ram_available": 1073741824,
+        "ram_total": 25769803776,
+        "runtimes": [
+          "hashbench",
+          "blender"
+        ],
+        "simulated": false,
+        "speed_factor": 1.0,
+        "throughput_mbps": 1000.0
+      },
+      {
+        "cores": 16,
+        "cpu_percent": 15.0,
+        "encoders": [
+          "h264_nvenc",
+          "hevc_nvenc",
+          "av1_nvenc"
+        ],
+        "gpu_name": "RTX 4090",
+        "has_gpu": true,
+        "is_self": false,
+        "latency_ms": 2.0,
+        "name": "workstation",
+        "node_id": "DESKTOP",
+        "online": true,
+        "ram_available": 51539607552,
+        "ram_total": 68719476736,
+        "runtimes": [
+          "hashbench",
+          "blender",
+          "ffmpeg"
+        ],
+        "simulated": false,
+        "speed_factor": 4.2,
+        "throughput_mbps": 940.0
+      },
+      {
+        "cores": 4,
+        "cpu_percent": 5.0,
+        "encoders": [],
+        "gpu_name": "",
+        "has_gpu": false,
+        "is_self": false,
+        "latency_ms": 8.0,
+        "name": "nas",
+        "node_id": "NASBOX1",
+        "online": true,
+        "ram_available": 6442450944,
+        "ram_total": 8589934592,
+        "runtimes": [
+          "hashbench"
+        ],
+        "simulated": false,
+        "speed_factor": 0.4,
+        "throughput_mbps": 90.0
+      }
+    ]
+  },
+  {
+    "expected": {
+      "assessments": [
+        {
+          "dimensions": {
+            "affinity": 1.0,
+            "headroom": 0.85,
+            "speed": 1.0,
+            "transfer": 1.0
+          },
+          "eligible": true,
+          "estimated_seconds": 5.4762,
+          "name": "workstation",
+          "node_id": "DESKTOP",
+          "reasons": [
+            "~5.48s of compute at 4.2\u00d7"
+          ],
+          "score": 1.0
+        },
+        {
+          "dimensions": {
+            "affinity": 1.0,
+            "headroom": 0.75,
+            "speed": 0.219,
+            "transfer": 1.0
+          },
+          "eligible": true,
+          "estimated_seconds": 25.0,
+          "name": "laptop",
+          "node_id": "LAPTOP1",
+          "reasons": [
+            "runs here \u2014 nothing to transfer",
+            "~25s of compute at 1\u00d7"
+          ],
+          "score": 0.219
+        },
+        {
+          "dimensions": {},
+          "eligible": false,
+          "estimated_seconds": 0.0,
+          "name": "nas",
+          "node_id": "NASBOX1",
+          "reasons": [
+            "has 4 cores, job needs 8"
+          ],
+          "score": 0.0
+        }
+      ],
+      "chosen": "DESKTOP",
+      "summary": "workstation \u2014 19.52s faster than laptop end to end"
+    },
+    "job": {
+      "cpu_cores": 8,
+      "input_bytes": 0,
+      "needs_gpu": false,
+      "preferred_encoders": [],
+      "ram_bytes": 1073741824,
+      "runtime": "hashbench",
+      "work_units": 20.0
+    },
+    "name": "core count rules a node out",
+    "nodes": [
+      {
+        "cores": 10,
+        "cpu_percent": 25.0,
+        "encoders": [
+          "h264_videotoolbox"
+        ],
+        "gpu_name": "Apple M4",
+        "has_gpu": true,
+        "is_self": true,
+        "latency_ms": 0.0,
+        "name": "laptop",
+        "node_id": "LAPTOP1",
+        "online": true,
+        "ram_available": 12884901888,
+        "ram_total": 25769803776,
+        "runtimes": [
+          "hashbench",
+          "blender"
+        ],
+        "simulated": false,
+        "speed_factor": 1.0,
+        "throughput_mbps": 1000.0
+      },
+      {
+        "cores": 16,
+        "cpu_percent": 15.0,
+        "encoders": [
+          "h264_nvenc",
+          "hevc_nvenc",
+          "av1_nvenc"
+        ],
+        "gpu_name": "RTX 4090",
+        "has_gpu": true,
+        "is_self": false,
+        "latency_ms": 2.0,
+        "name": "workstation",
+        "node_id": "DESKTOP",
+        "online": true,
+        "ram_available": 51539607552,
+        "ram_total": 68719476736,
+        "runtimes": [
+          "hashbench",
+          "blender",
+          "ffmpeg"
+        ],
+        "simulated": false,
+        "speed_factor": 4.2,
+        "throughput_mbps": 940.0
+      },
+      {
+        "cores": 4,
+        "cpu_percent": 5.0,
+        "encoders": [],
+        "gpu_name": "",
+        "has_gpu": false,
+        "is_self": false,
+        "latency_ms": 8.0,
+        "name": "nas",
+        "node_id": "NASBOX1",
+        "online": true,
+        "ram_available": 6442450944,
+        "ram_total": 8589934592,
+        "runtimes": [
+          "hashbench"
+        ],
+        "simulated": false,
+        "speed_factor": 0.4,
+        "throughput_mbps": 90.0
+      }
+    ]
+  },
+  {
+    "expected": {
+      "assessments": [
+        {
+          "dimensions": {
+            "affinity": 1.0,
+            "headroom": 0.75,
+            "speed": 0.219,
+            "transfer": 1.0
+          },
+          "eligible": true,
+          "estimated_seconds": 37.5,
+          "name": "laptop",
+          "node_id": "LAPTOP1",
+          "reasons": [
+            "runs here \u2014 nothing to transfer",
+            "~37.5s of compute at 1\u00d7"
+          ],
+          "score": 1.0
+        },
+        {
+          "dimensions": {
+            "affinity": 1.0,
+            "headroom": 0.85,
+            "speed": 1.0,
+            "transfer": 0.0121
+          },
+          "eligible": true,
+          "estimated_seconds": 679.4829,
+          "name": "workstation",
+          "node_id": "DESKTOP",
+          "reasons": [
+            "671.27s moving 204800 KiB each way (98% of the total)",
+            "~8.21s of compute at 4.2\u00d7"
+          ],
+          "score": 0.0552
+        }
+      ],
+      "chosen": "LAPTOP1",
+      "summary": "laptop \u2014 workstation computes faster but is 641.98s slower end to end once transfer is counted"
+    },
+    "job": {
+      "cpu_cores": 2,
+      "input_bytes": 209715200,
+      "needs_gpu": false,
+      "preferred_encoders": [],
+      "ram_bytes": 1073741824,
+      "runtime": "blender",
+      "work_units": 30.0
+    },
+    "name": "a slow link makes a fast node lose",
+    "nodes": [
+      {
+        "cores": 10,
+        "cpu_percent": 25.0,
+        "encoders": [
+          "h264_videotoolbox"
+        ],
+        "gpu_name": "Apple M4",
+        "has_gpu": true,
+        "is_self": true,
+        "latency_ms": 0.0,
+        "name": "laptop",
+        "node_id": "LAPTOP1",
+        "online": true,
+        "ram_available": 12884901888,
+        "ram_total": 25769803776,
+        "runtimes": [
+          "hashbench",
+          "blender"
+        ],
+        "simulated": false,
+        "speed_factor": 1.0,
+        "throughput_mbps": 1000.0
+      },
+      {
+        "cores": 16,
+        "cpu_percent": 15.0,
+        "encoders": [
+          "h264_nvenc",
+          "hevc_nvenc",
+          "av1_nvenc"
+        ],
+        "gpu_name": "RTX 4090",
+        "has_gpu": true,
+        "is_self": false,
+        "latency_ms": 90.0,
+        "name": "workstation",
+        "node_id": "DESKTOP",
+        "online": true,
+        "ram_available": 51539607552,
+        "ram_total": 68719476736,
+        "runtimes": [
+          "hashbench",
+          "blender",
+          "ffmpeg"
+        ],
+        "simulated": false,
+        "speed_factor": 4.2,
+        "throughput_mbps": 5.0
+      }
+    ]
+  },
+  {
+    "expected": {
+      "assessments": [],
+      "chosen": null,
+      "summary": "no nodes available"
+    },
+    "job": {
+      "cpu_cores": 1,
+      "input_bytes": 0,
+      "needs_gpu": false,
+      "preferred_encoders": [],
+      "ram_bytes": 1073741824,
+      "runtime": "hashbench",
+      "work_units": 1.0
+    },
+    "name": "no nodes at all",
+    "nodes": []
+  },
+  {
+    "expected": {
+      "assessments": [
+        {
+          "dimensions": {
+            "affinity": 1.0,
+            "headroom": 0.85,
+            "speed": 1.0,
+            "transfer": 0.9843
+          },
+          "eligible": true,
+          "estimated_seconds": 1.3909,
+          "name": "workstation",
+          "node_id": "DESKTOP",
+          "reasons": [
+            "~1.37s of compute at 4.2\u00d7",
+            "has hevc_nvenc"
+          ],
+          "score": 1.0
+        },
+        {
+          "dimensions": {
+            "affinity": 0.0,
+            "headroom": 0.75,
+            "speed": 0.219,
+            "transfer": 1.0
+          },
+          "eligible": true,
+          "estimated_seconds": 6.25,
+          "name": "laptop",
+          "node_id": "LAPTOP1",
+          "reasons": [
+            "runs here \u2014 nothing to transfer",
+            "~6.25s of compute at 1\u00d7",
+            "no preferred encoder"
+          ],
+          "score": 0.2225
+        }
+      ],
+      "chosen": "DESKTOP",
+      "summary": "workstation \u2014 4.86s faster than laptop end to end"
+    },
+    "job": {
+      "cpu_cores": 1,
+      "input_bytes": 1048576,
+      "needs_gpu": false,
+      "preferred_encoders": [
+        "hevc_nvenc"
+      ],
+      "ram_bytes": 1073741824,
+      "runtime": "blender",
+      "work_units": 5.0
+    },
+    "name": "encoder preference is explained even when it changes nothing",
+    "nodes": [
+      {
+        "cores": 16,
+        "cpu_percent": 15.0,
+        "encoders": [
+          "h264_nvenc",
+          "hevc_nvenc",
+          "av1_nvenc"
+        ],
+        "gpu_name": "RTX 4090",
+        "has_gpu": true,
+        "is_self": false,
+        "latency_ms": 2.0,
+        "name": "workstation",
+        "node_id": "DESKTOP",
+        "online": true,
+        "ram_available": 51539607552,
+        "ram_total": 68719476736,
+        "runtimes": [
+          "hashbench",
+          "blender",
+          "ffmpeg"
+        ],
+        "simulated": false,
+        "speed_factor": 4.2,
+        "throughput_mbps": 940.0
+      },
+      {
+        "cores": 10,
+        "cpu_percent": 25.0,
+        "encoders": [
+          "h264_videotoolbox"
+        ],
+        "gpu_name": "Apple M4",
+        "has_gpu": true,
+        "is_self": true,
+        "latency_ms": 0.0,
+        "name": "laptop",
+        "node_id": "LAPTOP1",
+        "online": true,
+        "ram_available": 12884901888,
+        "ram_total": 25769803776,
+        "runtimes": [
+          "hashbench",
+          "blender"
+        ],
+        "simulated": false,
+        "speed_factor": 1.0,
+        "throughput_mbps": 1000.0
+      }
+    ]
+  }
+]

@@ -241,3 +241,88 @@ def bench_command(
         _fail(str(exc))
     except apiclient.ApiError as exc:
         _fail(f"  {exc}")
+
+
+def explain_command(
+    job_id: str = typer.Argument("", help="A job id, or omit to preview a placement."),
+    runtime: str = typer.Option("hashbench", "--runtime", help="Runtime to preview."),
+    cores: int = typer.Option(1, "--cores"),
+    ram_gib: float = typer.Option(1.0, "--ram", help="Memory needed, in GiB."),
+    gpu: bool = typer.Option(False, "--gpu", help="Require a GPU."),
+    encoder: str = typer.Option("", "--encoder", help="Preferred hardware encoder."),
+    input_mib: float = typer.Option(0.0, "--input", help="Input size in MiB."),
+    work: float = typer.Option(10.0, "--work", help="Rough compute size in work units."),
+) -> None:
+    """Show where a job would run, and why each node won or lost.
+
+    The scheduler is a pure function, so this is the real decision rather than
+    a description of one -- the same call the agent makes when placing work.
+    """
+    log.setup()
+    try:
+        if job_id:
+            job = apiclient.get(f"/jobs/{job_id}")
+            resources = job["resources"]
+            body = {
+                "runtime": job["runtime"],
+                "cpu_cores": resources["cpu_cores"],
+                "ram_bytes": resources["ram_bytes"],
+                "needs_gpu": resources["needs_gpu"],
+                "preferred_encoders": resources["preferred_encoders"],
+                "input_bytes": 0,
+                "work_units": max(1.0, float(job["duration_s"] or 10.0)),
+            }
+            typer.secho(f"\n  replaying the placement for job {job_id[:8]} ({job['runtime']})",
+                        fg=typer.colors.BRIGHT_BLACK)
+        else:
+            body = {
+                "runtime": runtime,
+                "cpu_cores": cores,
+                "ram_bytes": int(ram_gib * 1024**3),
+                "needs_gpu": gpu,
+                "preferred_encoders": [encoder] if encoder else [],
+                "input_bytes": int(input_mib * 1024**2),
+                "work_units": work,
+            }
+            typer.secho(f"\n  where would a {runtime} job go?", fg=typer.colors.BRIGHT_BLACK)
+
+        decision = apiclient.post("/schedule", body)
+    except apiclient.AgentNotRunningError as exc:
+        _fail(str(exc))
+        return
+    except apiclient.ApiError as exc:
+        _fail(f"  {exc}")
+        return
+
+    typer.echo()
+    typer.secho(f"  → {decision['summary']}\n", fg=typer.colors.BRIGHT_MAGENTA)
+
+    for entry in decision["assessments"]:
+        chosen = entry["node_id"] == decision["chosen"]
+        marker = "✓" if chosen else (" " if entry["eligible"] else "✗")
+        colour = (
+            typer.colors.GREEN if chosen
+            else typer.colors.WHITE if entry["eligible"]
+            else typer.colors.RED
+        )
+        typer.secho(f"  {marker} {entry['name']:<16}", fg=colour, nl=False)
+
+        if entry["eligible"]:
+            typer.echo(f"score {entry['score']:.3f}   ~{entry['estimated_seconds']:.2f}s")
+            dims = entry["dimensions"]
+            for key in ("speed", "headroom", "transfer", "affinity"):
+                value = dims.get(key, 0.0)
+                bar = "█" * int(value * 14) + "░" * (14 - int(value * 14))
+                typer.secho(f"      {key:<10} {bar} {value:.2f}", fg=typer.colors.BRIGHT_BLACK)
+        else:
+            typer.echo("ineligible")
+
+        for reason in entry["reasons"]:
+            typer.secho(f"      · {reason}", fg=typer.colors.BRIGHT_BLACK)
+        typer.echo()
+
+    typer.secho(
+        "  speed/headroom/transfer/affinity explain the ranking; the ranking itself\n"
+        "  minimises predicted end-to-end time (compute + moving the bytes).\n",
+        fg=typer.colors.BRIGHT_BLACK,
+    )

@@ -19,6 +19,9 @@ from haze.jobs import runtimes
 from haze.jobs.executor import new_job_id
 from haze.jobs.spec import JobSpec, ResourceRequest
 from haze.runtime import Agent
+from haze.scheduler import cluster
+from haze.scheduler.decide import decide
+from haze.scheduler.model import JobRequirement
 from haze.transport import client as node_client
 
 _log = log.get("api.jobs")
@@ -165,6 +168,49 @@ async def cleanup(request: Request, job_id: str) -> JSONResponse:
     if not _agent(request).executor.cleanup(job_id):
         raise HTTPException(status.HTTP_409_CONFLICT, "job is still running")
     return JSONResponse({"ok": True})
+
+
+class ScheduleRequest(BaseModel):
+    runtime: str
+    cpu_cores: int = Field(default=1, ge=1, le=256)
+    ram_bytes: int = Field(default=1 << 30, ge=1 << 20)
+    needs_gpu: bool = False
+    preferred_encoders: list[str] = Field(default_factory=list)
+    input_bytes: int = Field(default=0, ge=0)
+    work_units: float = Field(default=1.0, gt=0)
+
+
+@router.post("/schedule")
+async def schedule(request: Request, body: ScheduleRequest) -> JSONResponse:
+    """Where would this job go, and why?
+
+    A preview: it decides but does not submit. This is what `haze explain`
+    prints and what the dashboard's decision trace shows -- the point being
+    that the reasoning is inspectable before you commit to it, not archaeology
+    afterwards.
+    """
+    agent = _agent(request)
+    hub = request.app.state.hub
+    # Asked live rather than cached: a placement preview is user-initiated
+    # and rare, and a stale view of what a peer can run is exactly the kind
+    # of wrong that makes a scheduler untrustworthy.
+    capabilities = await cluster.probe_peers(agent.identity, agent.cfg)
+    candidates = await cluster.build(
+        hub.latest(), agent.node_id, agent.cfg.node_name, capabilities
+    )
+    decision = decide(
+        candidates,
+        JobRequirement(
+            runtime=body.runtime,
+            cpu_cores=body.cpu_cores,
+            ram_bytes=body.ram_bytes,
+            needs_gpu=body.needs_gpu,
+            preferred_encoders=body.preferred_encoders,
+            input_bytes=body.input_bytes,
+            work_units=body.work_units,
+        ),
+    )
+    return JSONResponse(decision.to_dict())
 
 
 @router.get("/runtimes")

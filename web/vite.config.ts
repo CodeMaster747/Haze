@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
@@ -33,4 +34,10 @@ export default defineConfig(({ mode }) => ({
     sourcemap: mode !== 'demo',
   },
   server: { port: 5173, strictPort: false },
+  test: {
+    // The conformance suite reads a JSON corpus off disk, so it needs the
+    // node environment rather than jsdom.
+    environment: 'node',
+    include: ['tests/**/*.test.ts', 'src/**/*.test.ts'],
+  },
 }));
