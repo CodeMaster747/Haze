@@ -1,4 +1,5 @@
 import { Cpu, HardDrive, MemoryStick, MonitorCog } from 'lucide-react';
+import type { ReactNode } from 'react';
 
 import { Badge } from '@/components/ui/Badge';
 import { Meter } from '@/components/ui/Meter';
@@ -13,21 +14,23 @@ export function NodeCard({ node }: { node: NodeInfo }) {
     <Panel
       title={node.name}
       right={
-        <div className="flex items-center gap-1.5">
+        <>
           {/* A simulated node is badged on every surface that renders it. An
               unbadged synthetic "RTX 4090" is the fastest way to turn this
               project's best demo asset into a credibility problem. */}
           {node.simulated && <Badge tone="simulated">simulated</Badge>}
           {node.is_self && <Badge>this machine</Badge>}
-          <Badge tone={node.status}>{node.status}</Badge>
-        </div>
+          <Badge tone={node.status} dot>
+            {node.status}
+          </Badge>
+        </>
       }
     >
       {!t ? (
-        <p className="py-6 text-center text-sm text-text-muted">waiting for telemetry…</p>
+        <p className="py-8 text-center text-sm text-text-muted">Waiting for telemetry…</p>
       ) : (
-        <div className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-5">
+          <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
             <Meter
               label="CPU"
               value={t.cpu.percent}
@@ -59,22 +62,27 @@ export function NodeCard({ node }: { node: NodeInfo }) {
 
           <CoreGrid cores={t.cpu.per_core} />
 
-          <dl className="flex flex-wrap gap-x-5 gap-y-1 border-t border-border-subtle pt-3 font-mono text-[11px] text-text-dim">
-            <Stat icon={<Cpu size={11} />} label={`${t.cpu.cores}c`} />
-            <Stat icon={<MemoryStick size={11} />} label={bytes(t.ram.total, 0)} />
-            <Stat icon={<HardDrive size={11} />} label={bytes(t.disk.total, 0)} />
-            {t.gpu && <Stat icon={<MonitorCog size={11} />} label={t.gpu.encoders[0] ?? 'no encoder'} />}
-            <span className="ml-auto">up {duration(t.uptime_s)}</span>
-          </dl>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-border-subtle pt-3 font-mono text-2xs text-text-dim">
+            <Spec icon={<Cpu size={12} aria-hidden />} label={`${t.cpu.cores}c`} />
+            <Spec icon={<MemoryStick size={12} aria-hidden />} label={bytes(t.ram.total, 0)} />
+            <Spec icon={<HardDrive size={12} aria-hidden />} label={bytes(t.disk.total, 0)} />
+            {t.gpu && (
+              <Spec
+                icon={<MonitorCog size={12} aria-hidden />}
+                label={t.gpu.encoders[0] ?? 'no encoder'}
+              />
+            )}
+            <span className="ml-auto tabular-nums">up {duration(t.uptime_s)}</span>
+          </div>
         </div>
       )}
     </Panel>
   );
 }
 
-function Stat({ icon, label }: { icon: React.ReactNode; label: string }) {
+function Spec({ icon, label }: { icon: ReactNode; label: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5">
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
       {icon}
       {label}
     </span>
@@ -87,19 +95,26 @@ function Stat({ icon, label }: { icon: React.ReactNode; label: string }) {
 function CoreGrid({ cores }: { cores: number[] }) {
   if (cores.length === 0) return null;
   return (
-    <div className="flex gap-[3px]" aria-label="per-core utilisation">
-      {cores.map((load, i) => (
-        <div
-          key={i}
-          className="h-6 flex-1 overflow-hidden rounded-sm bg-bg-tertiary"
-          title={`core ${i}: ${load.toFixed(0)}%`}
-        >
+    <div
+      className="flex gap-0.5 overflow-x-auto"
+      role="img"
+      aria-label={`Per-core utilisation across ${cores.length} cores`}
+    >
+      {cores.map((load, i) => {
+        const height = Math.min(100, Math.max(0, load));
+        return (
           <div
-            className="w-full bg-accent-primary/70 transition-[height] duration-500 ease-out-quart"
-            style={{ height: `${Math.min(100, Math.max(0, load))}%`, marginTop: `${100 - Math.min(100, Math.max(0, load))}%` }}
-          />
-        </div>
-      ))}
+            key={i}
+            className="h-6 min-w-1 flex-1 overflow-hidden rounded-sm bg-bg-tertiary"
+            title={`core ${i}: ${load.toFixed(0)}%`}
+          >
+            <div
+              className="w-full bg-accent-primary/70 transition-[height,margin] duration-500 ease-out-quart"
+              style={{ height: `${height}%`, marginTop: `${100 - height}%` }}
+            />
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -2,6 +2,10 @@ import { Radio, RadioTower } from 'lucide-react';
 import { useState } from 'react';
 
 import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
+import { Callout } from '@/components/ui/Callout';
+import { Code } from '@/components/ui/Code';
+import { Field, Input } from '@/components/ui/Field';
 import { Panel } from '@/components/ui/Panel';
 import { api } from '@/lib/api';
 import type { PairingState } from '@/types';
@@ -12,7 +16,13 @@ import type { PairingState } from '@/types';
  *  wizard: the user has to do one of these on *each* machine, and seeing both
  *  options makes that obvious in a way a single "Add a device" button does not.
  */
-export function PairingPanel({ pairing, disabled }: { pairing: PairingState | null; disabled: boolean }) {
+export function PairingPanel({
+  pairing,
+  disabled,
+}: {
+  pairing: PairingState | null;
+  disabled: boolean;
+}) {
   const [host, setHost] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,76 +43,95 @@ export function PairingPanel({ pairing, disabled }: { pairing: PairingState | nu
 
   return (
     <Panel
-      title="add a machine"
-      right={armed ? <Badge tone="busy">open · {Math.round(pairing?.arm_remaining_s ?? 0)}s</Badge> : undefined}
+      title="Add a machine"
+      right={
+        armed ? (
+          <Badge tone="busy" dot>
+            open · {Math.round(pairing?.arm_remaining_s ?? 0)}s
+          </Badge>
+        ) : undefined
+      }
     >
       {disabled ? (
-        <p className="text-sm text-text-muted">
+        <p className="text-sm leading-relaxed text-text-muted">
           Pairing is disabled in this demo — there is no agent behind it. Install Haze on two
           machines to pair them for real.
         </p>
       ) : (
-        <div className="grid gap-5 sm:grid-cols-2">
-          <section>
-            <h3 className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-text-primary">
-              <RadioTower size={14} className="text-accent-primary" />
-              Wait for a machine
-            </h3>
-            <p className="mb-3 text-xs leading-relaxed text-text-muted">
+        // Two equal halves separated by a hairline rather than two cards: they
+        // are one instruction with two ends, not two features.
+        <div className="grid gap-6 sm:grid-cols-2 sm:gap-0">
+          <section className="sm:pr-6">
+            <Step icon={RadioTower} title="Wait for a machine">
               Opens a window on this machine. Do this on one of the two, then use the other
               column over there.
-            </p>
-            <button
-              type="button"
+            </Step>
+            <Button
+              className="mt-4 w-full"
               disabled={busy}
               onClick={() => void run(armed ? api.disarmPairing : () => api.armPairing(180))}
-              className="w-full rounded border border-border px-3 py-2 text-sm text-text-secondary transition hover:border-accent-primary/50 hover:text-accent-primary disabled:opacity-40"
             >
               {armed ? 'Close the window' : 'Open for 3 minutes'}
-            </button>
+            </Button>
           </section>
 
-          <section>
-            <h3 className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-text-primary">
-              <Radio size={14} className="text-accent-primary" />
-              Connect to a machine
-            </h3>
-            <p className="mb-3 text-xs leading-relaxed text-text-muted">
-              Its address on your network, e.g.{' '}
-              <code className="font-mono text-text-secondary">192.168.1.42</code>.
-            </p>
+          <section className="border-t border-border-subtle pt-6 sm:border-l sm:border-t-0 sm:pl-6 sm:pt-0">
+            <Step icon={Radio} title="Connect to a machine">
+              Its address on your network, e.g. <Code>192.168.1.42</Code>.
+            </Step>
             <form
-              className="flex gap-2"
+              className="mt-4 flex items-end gap-2"
               onSubmit={(e) => {
                 e.preventDefault();
                 if (host.trim()) void run(() => api.initiatePairing(host.trim()));
               }}
             >
-              <input
-                value={host}
-                onChange={(e) => setHost(e.target.value)}
-                placeholder="192.168.1.42"
-                spellCheck={false}
-                autoComplete="off"
-                className="min-w-0 flex-1 rounded border border-border bg-bg-tertiary px-2.5 py-2 font-mono text-sm text-text-primary outline-none transition placeholder:text-text-dim focus:border-accent-primary/60"
-              />
-              <button
-                type="submit"
-                disabled={busy || !host.trim()}
-                className="rounded border border-accent-primary/50 bg-accent-subtle px-3 py-2 text-sm text-accent-primary transition hover:bg-accent-primary/20 disabled:opacity-40"
-              >
+              <Field label="Address" hideLabel className="flex-1">
+                {(id) => (
+                  <Input
+                    id={id}
+                    value={host}
+                    onChange={(e) => setHost(e.target.value)}
+                    placeholder="192.168.1.42"
+                    mono
+                    spellCheck={false}
+                    autoComplete="off"
+                  />
+                )}
+              </Field>
+              <Button type="submit" variant="primary" disabled={busy || !host.trim()}>
                 Connect
-              </button>
+              </Button>
             </form>
           </section>
         </div>
       )}
 
       {(error || pairing?.last_error) && (
-        <p className="mt-4 rounded border border-state-error/30 bg-state-error/5 px-3 py-2 text-xs text-state-error">
+        <Callout tone="error" className="mt-4">
           {error ?? pairing?.last_error}
-        </p>
+        </Callout>
       )}
     </Panel>
+  );
+}
+
+function Step({
+  icon: Icon,
+  title,
+  children,
+}: {
+  icon: typeof Radio;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <>
+      <h3 className="flex items-center gap-2 text-sm font-medium text-text-primary">
+        <Icon size={14} strokeWidth={2} aria-hidden className="text-accent-primary" />
+        {title}
+      </h3>
+      <p className="mt-1.5 text-xs leading-relaxed text-text-muted">{children}</p>
+    </>
   );
 }

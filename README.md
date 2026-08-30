@@ -229,19 +229,41 @@ The dashboard shows which of these you actually got. A cap that silently is not
 enforced is worse than no cap — it makes someone comfortable running a job they
 should have thought harder about.
 
-## The browser demo
+## The public site
 
-The deployed site runs a **simulated cluster in your browser**. No backend: nothing
-to pay for, nothing to cold-start, nothing that rots when a free tier changes
-terms — and something moving within a second of landing.
+Two screens, and no backend behind either: nothing to pay for, nothing to
+cold-start, nothing that rots when a free tier changes terms.
 
-It is not a mock. Placement goes through the same `decide()` the agent runs,
+**`/` is the landing page.** Its hero is not a screenshot of the scheduler — it
+*is* the scheduler. The panel calls the same `decide()` on the demo cluster's
+three machines, and its one control changes the link between them:
+
+```
+  Fast LAN  → workstation — 0.93s faster than laptop end to end
+  Wi-Fi     → laptop — workstation computes faster but is 61.57s slower
+              end to end once transfer is counted
+```
+
+A machine that computes 4× faster winning by under a second, then losing
+outright one step down, is the entire argument for weighing transfer cost. The
+page lets a visitor falsify it in a click rather than asserting it in a
+sentence.
+
+**`/cluster` is the simulated cluster** — something moving within a second of
+arriving. It is not a mock either. Placement goes through the same `decide()`,
 held to the Python implementation by the conformance corpus above. What is
 simulated is the hardware and the passage of time; the scheduling is real.
 
 You can submit jobs, drag the network between machines from LAN to slow link
 and watch an encode job come home, take a machine offline mid-job and watch the
 work get rescheduled, and pause or fast-forward the virtual clock.
+
+**The landing page ships only in the hosted build.** `__HAZE_DEMO__` gates the
+route switch, so the agent's own dashboard opens straight onto telemetry as it
+always did — someone who has run `haze up` has already been introduced to the
+product, and a marketing page in front of their cluster would be an
+interruption rather than an entrance. The agent bundle contains no landing-page
+code at all.
 
 **The hosted bundle provably cannot contact a local agent.** `__HAZE_DEMO__` is
 a compile-time constant, so the minifier strips the entire agent-facing path,
@@ -343,7 +365,7 @@ utilisation on Apple Silicon is available without root; VRAM breakdown is not.
 | M2 | LAN discovery, resource probes, `haze devnet` | ✅ done |
 | M3 | Job submission, execution, progress, file transfer | ✅ done |
 | M4 | Scheduler + `haze explain` + conformance corpus | ✅ done |
-| M5 | The in-browser simulated cluster (deployed demo) | ✅ built — awaiting a Firebase project to deploy to |
+| M5 | Landing page + the in-browser simulated cluster | ✅ built — awaiting a Firebase project to deploy to |
 | M6 | Benchmark with committed data, fault injection, docs | ✅ done |
 
 **Deliberately out of scope:** interactive application/game streaming. It is a

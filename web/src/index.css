@@ -14,19 +14,62 @@
   }
 
   body {
-    @apply bg-bg-primary font-sans text-text-primary antialiased;
-    /* A very low-contrast wash so large empty panels do not read as a broken
-       page while the first telemetry frame is still in flight. */
-    background-image: radial-gradient(
-      ellipse 90% 60% at 50% -10%,
-      rgba(56, 189, 201, 0.055),
-      transparent
-    );
-    background-attachment: fixed;
+    @apply bg-bg-primary font-sans text-base text-text-primary antialiased;
+    /* Inter's disambiguated lowercase l. This UI is full of hostnames and
+       short ids where l/1/I have to be told apart at 11px. */
+    font-feature-settings: 'cv05' 1;
+  }
+
+  /* One focus treatment for the whole application, so nothing can end up
+     keyboard-invisible. A real outline rather than a ring: an outline follows
+     the element's own radius and needs no offset colour, so it reads correctly
+     on the page, on a panel and inside a dialog without three variants.
+     Controls that want a softer treatment set focus:outline-none and draw
+     their own — see Field.tsx — and win on specificity. */
+  :focus-visible {
+    outline: 2px solid rgba(56, 189, 201, 0.6);
+    outline-offset: 2px;
   }
 
   ::selection {
     @apply bg-accent-primary/25;
+  }
+
+  /* The panels scroll their own overflow (tables, the core grid). A 14px
+     platform scrollbar inside a 10px-radius panel is the loudest thing on the
+     page; this is the same bar, quieter. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-clip: content-box;
+    border: 3px solid transparent;
+    border-radius: 9999px;
+    background-color: rgba(255, 255, 255, 0.14);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(255, 255, 255, 0.22);
+  }
+}
+
+@layer components {
+  /* The single container geometry every full-width band shares — header,
+     main, footer. Defined once so the header's logo and the first panel's
+     left edge are provably on the same line at every breakpoint. */
+  .shell {
+    @apply mx-auto w-full max-w-6xl px-4 sm:px-6;
   }
 }
 

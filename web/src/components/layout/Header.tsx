@@ -1,9 +1,13 @@
-import { Activity, CloudOff, Loader2, ShieldAlert, Waves } from 'lucide-react';
+import { Activity, CloudOff, Loader2, ShieldAlert } from 'lucide-react';
 
 import { Badge } from '@/components/ui/Badge';
+import { Wordmark } from '@/components/ui/Wordmark';
 import type { LinkState } from '@/types';
 
-const LINK: Record<LinkState, { label: string; tone: 'online' | 'busy' | 'error' | 'offline'; icon: typeof Activity }> = {
+const LINK: Record<
+  LinkState,
+  { label: string; tone: 'online' | 'busy' | 'error' | 'offline'; icon: typeof Activity }
+> = {
   live: { label: 'live', tone: 'online', icon: Activity },
   connecting: { label: 'connecting', tone: 'busy', icon: Loader2 },
   retrying: { label: 'reconnecting', tone: 'busy', icon: Loader2 },
@@ -17,20 +21,36 @@ export function Header({ link, isLive }: { link: LinkState; isLive: boolean }) {
   const spinning = link === 'connecting' || link === 'retrying';
 
   return (
-    <header className="sticky top-0 z-10 border-b border-border-subtle bg-bg-primary/85 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center gap-3 px-5 py-3">
-        <Waves size={18} className="text-accent-primary" />
-        <span className="font-mono text-sm font-medium tracking-tight text-text-primary">haze</span>
+    <header className="sticky top-0 z-20 border-b border-border-subtle bg-bg-primary/90 backdrop-blur-md">
+      {/* Fixed height rather than padding around variable-height children:
+          the header must not resize when the connection badge changes text. */}
+      <div className="shell flex h-14 items-center gap-3">
+        <Wordmark />
 
         {/* The hosted demo must never be mistakable for a live cluster. */}
-        {!isLive && <Badge tone="simulated">demo · simulated cluster</Badge>}
-
-        <div className="ml-auto">
-          <Badge tone={state.tone}>
-            <Icon size={10} className={spinning ? 'animate-spin' : undefined} />
-            {state.label}
+        {!isLive && (
+          <Badge tone="simulated" dot>
+            <span className="sm:hidden">simulated</span>
+            <span className="hidden sm:inline">demo · simulated cluster</span>
           </Badge>
-        </div>
+        )}
+
+        {/* Only meaningful when there is a real connection to report. In the
+            demo the link is a constant, and a green "live" chip beside the
+            "simulated cluster" chip says two opposite things at once. */}
+        {isLive && (
+          <div className="ml-auto">
+            <Badge tone={state.tone}>
+              <Icon
+                size={11}
+                strokeWidth={2.25}
+                aria-hidden
+                className={spinning ? 'animate-spin' : undefined}
+              />
+              {state.label}
+            </Badge>
+          </div>
+        )}
       </div>
     </header>
   );

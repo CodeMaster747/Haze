@@ -1,7 +1,9 @@
-import { Laptop, Plug } from 'lucide-react';
+import { Laptop, Plug, Server } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { Panel } from '@/components/ui/Panel';
 import { api } from '@/lib/api';
 import type { PeerRow, SelfNode } from '@/types';
@@ -56,46 +58,61 @@ export function PeerList({ enabled }: { enabled: boolean }) {
 
   return (
     <Panel
-      title="paired machines"
-      right={self?.short_id ? <Badge>this node · {self.short_id}</Badge> : undefined}
+      title="Paired machines"
+      right={
+        self?.short_id ? (
+          <Badge mono>
+            <Server size={11} aria-hidden /> {self.short_id}
+          </Badge>
+        ) : undefined
+      }
     >
       {peers.length === 0 ? (
-        <p className="py-6 text-center text-sm text-text-muted">
-          {enabled
-            ? 'No paired machines yet. Use “add a machine” above on both computers.'
-            : 'The demo cluster is pre-paired.'}
-        </p>
+        <EmptyState
+          icon={Laptop}
+          title={enabled ? 'No paired machines yet' : 'The demo cluster is pre-paired'}
+          hint={
+            enabled
+              ? 'Use “Add a machine” below on both computers — one waits, the other connects.'
+              : undefined
+          }
+        />
       ) : (
         <ul className="divide-y divide-border-subtle">
-          {peers.map((peer) => (
-            <li key={peer.node_id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
-              <Laptop size={16} className="shrink-0 text-text-muted" />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm text-text-primary">{peer.name}</p>
-                <p className="truncate font-mono text-[11px] text-text-dim">
-                  {peer.short_id} · {peer.last_host}:{peer.last_port} · {peer.platform || 'unknown'}
-                </p>
-              </div>
-              {results[peer.node_id] && (
-                <span
-                  className={`font-mono text-[11px] ${
-                    results[peer.node_id] === 'reachable' ? 'text-state-online' : 'text-state-error'
-                  }`}
+          {peers.map((peer) => {
+            const result = results[peer.node_id];
+            return (
+              <li key={peer.node_id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
+                <Laptop size={16} strokeWidth={2} aria-hidden className="shrink-0 text-text-muted" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm text-text-primary">{peer.name}</p>
+                  <p className="truncate font-mono text-2xs text-text-dim">
+                    {peer.short_id} · {peer.last_host}:{peer.last_port} ·{' '}
+                    {peer.platform || 'unknown'}
+                  </p>
+                </div>
+                {result && (
+                  <span
+                    role="status"
+                    className={`hidden shrink-0 font-mono text-2xs sm:inline ${
+                      result === 'reachable' ? 'text-state-online' : 'text-state-error'
+                    }`}
+                  >
+                    {result}
+                  </span>
+                )}
+                <Button
+                  size="sm"
+                  icon={Plug}
+                  loading={pinging === peer.node_id}
+                  onClick={() => void ping(peer)}
+                  title="Open an authenticated connection and check it responds"
                 >
-                  {results[peer.node_id]}
-                </span>
-              )}
-              <button
-                type="button"
-                disabled={pinging === peer.node_id}
-                onClick={() => void ping(peer)}
-                title="Open an authenticated connection and check it responds"
-                className="rounded border border-border px-2 py-1 text-xs text-text-secondary transition hover:border-accent-primary/50 hover:text-accent-primary disabled:opacity-40"
-              >
-                <Plug size={12} className="inline" /> {pinging === peer.node_id ? '…' : 'check'}
-              </button>
-            </li>
-          ))}
+                  Check
+                </Button>
+              </li>
+            );
+          })}
         </ul>
       )}
     </Panel>

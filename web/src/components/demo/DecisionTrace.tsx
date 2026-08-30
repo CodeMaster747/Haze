@@ -1,3 +1,6 @@
+import { Check, Route } from 'lucide-react';
+
+import { EmptyState } from '@/components/ui/EmptyState';
 import { Panel } from '@/components/ui/Panel';
 import type { Assessment, Decision } from '@/sim/scheduler';
 
@@ -17,25 +20,32 @@ const DIMENSION_HELP: Record<string, string> = {
 export function DecisionTrace({ decision }: { decision: Decision | null }) {
   if (!decision) {
     return (
-      <Panel title="scheduler">
-        <p className="py-6 text-center text-sm text-text-muted">
-          Submit a job to see how it gets placed.
-        </p>
+      <Panel title="Scheduler">
+        <EmptyState
+          icon={Route}
+          title="No placement yet"
+          hint="Submit a job and the full ranking — winner and losers — appears here."
+        />
       </Panel>
     );
   }
 
   return (
-    <Panel title="why it chose that">
-      <p className="mb-4 text-sm text-accent-secondary">{decision.summary}</p>
-      <ul className="space-y-3">
+    <Panel title="Why it chose that">
+      <p className="text-sm leading-relaxed text-text-primary">{decision.summary}</p>
+
+      {/* Full-bleed rows separated by hairlines rather than a stack of nested
+          cards: these are one ranked list, and boxing each entry made the
+          panel read as four unrelated panels. */}
+      <ul className="-mx-4 mt-4 divide-y divide-border-subtle border-y border-border-subtle">
         {decision.assessments.map((a) => (
           <Candidate key={a.node_id} assessment={a} won={a.node_id === decision.chosen} />
         ))}
       </ul>
-      <p className="mt-4 border-t border-border-subtle pt-3 text-[11px] leading-relaxed text-text-dim">
-        The ranking minimises predicted end-to-end time — compute plus moving the bytes. The
-        four bars explain it; they are not what is being maximised.
+
+      <p className="mt-4 text-2xs leading-relaxed text-text-dim">
+        The ranking minimises predicted end-to-end time — compute plus moving the bytes. The four
+        bars explain it; they are not what is being maximised.
       </p>
     </Panel>
   );
@@ -44,36 +54,36 @@ export function DecisionTrace({ decision }: { decision: Decision | null }) {
 function Candidate({ assessment, won }: { assessment: Assessment; won: boolean }) {
   return (
     <li
-      className={`rounded border px-3 py-2.5 ${
-        won
-          ? 'border-accent-primary/40 bg-accent-subtle'
-          : assessment.eligible
-            ? 'border-border-subtle'
-            : 'border-border-subtle opacity-55'
+      className={`px-4 py-3 ${won ? 'bg-accent-subtle' : ''} ${
+        assessment.eligible ? '' : 'opacity-55'
       }`}
     >
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="text-sm text-text-primary">
-          {won && <span className="mr-1 text-accent-primary">✓</span>}
-          {assessment.name}
+      <div className="flex items-baseline justify-between gap-3">
+        <span
+          className={`flex min-w-0 items-baseline gap-1.5 text-sm ${
+            won ? 'font-medium text-accent-primary' : 'text-text-primary'
+          }`}
+        >
+          {won && <Check size={12} strokeWidth={2.5} aria-label="chosen" className="shrink-0" />}
+          <span className="min-w-0 truncate">{assessment.name}</span>
         </span>
-        <span className="font-mono text-[11px] text-text-muted">
+        <span className="shrink-0 font-mono text-2xs tabular-nums text-text-muted">
           {assessment.eligible ? `~${assessment.estimated_seconds}s` : 'ineligible'}
         </span>
       </div>
 
       {assessment.eligible && (
-        <div className="mt-2 grid gap-1">
+        <div className="mt-2.5 space-y-1.5">
           {Object.entries(assessment.dimensions).map(([key, value]) => (
             <div key={key} className="flex items-center gap-2" title={DIMENSION_HELP[key]}>
-              <span className="w-16 shrink-0 font-mono text-[10px] text-text-dim">{key}</span>
-              <div className="h-1 flex-1 overflow-hidden rounded-full bg-bg-tertiary">
+              <span className="w-16 shrink-0 text-2xs text-text-dim">{key}</span>
+              <div className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-bg-tertiary">
                 <div
-                  className="h-full rounded-full bg-accent-primary/70"
+                  className="h-full rounded-full bg-accent-primary/70 transition-[width] duration-300 ease-out-quart"
                   style={{ width: `${Math.round(value * 100)}%` }}
                 />
               </div>
-              <span className="w-8 shrink-0 text-right font-mono text-[10px] text-text-dim">
+              <span className="w-7 shrink-0 text-right font-mono text-2xs tabular-nums text-text-dim">
                 {value.toFixed(2)}
               </span>
             </div>
@@ -81,13 +91,18 @@ function Candidate({ assessment, won }: { assessment: Assessment; won: boolean }
         </div>
       )}
 
-      <ul className="mt-1.5 space-y-0.5">
-        {assessment.reasons.map((reason, i) => (
-          <li key={i} className="font-mono text-[11px] text-text-dim">
-            · {reason}
-          </li>
-        ))}
-      </ul>
+      {assessment.reasons.length > 0 && (
+        <ul className="mt-2 space-y-0.5">
+          {assessment.reasons.map((reason, i) => (
+            <li
+              key={i}
+              className="text-2xs leading-relaxed text-text-dim before:mr-1.5 before:content-['·']"
+            >
+              {reason}
+            </li>
+          ))}
+        </ul>
+      )}
     </li>
   );
 }

@@ -1,7 +1,11 @@
-import { Antenna, Link2, Plus, Radar, TriangleAlert } from 'lucide-react';
+import { Antenna, Link2, Plus, Radar, TriangleAlert, WifiOff } from 'lucide-react';
 import { useState } from 'react';
 
 import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
+import { Callout } from '@/components/ui/Callout';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { Field, Input } from '@/components/ui/Field';
 import { Panel } from '@/components/ui/Panel';
 import { api } from '@/lib/api';
 import type { DiscoveredNode, DiscoveryState } from '@/types';
@@ -26,6 +30,7 @@ export function NetworkPanel({
 
   const nodes = discovery?.nodes ?? [];
   const isolated = nodes.filter((n) => n.reachable === false && n.sources.length > 0);
+  const noMechanism = discovery != null && !discovery.mdns && !discovery.broadcast;
 
   const addManual = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,26 +49,30 @@ export function NetworkPanel({
 
   return (
     <Panel
-      title="on this network"
+      title="On this network"
       right={
         discovery && (
-          <div className="flex gap-1.5">
-            <Badge tone={discovery.mdns ? 'online' : 'offline'}>
-              <Radar size={10} /> mdns
+          <>
+            <Badge tone={discovery.mdns ? 'online' : 'offline'} >
+              <Radar size={11} aria-hidden /> mdns
             </Badge>
             <Badge tone={discovery.broadcast ? 'online' : 'offline'}>
-              <Antenna size={10} /> beacon
+              <Antenna size={11} aria-hidden /> beacon
             </Badge>
-          </div>
+          </>
         )
       }
     >
       {nodes.length === 0 ? (
-        <p className="py-5 text-center text-sm text-text-muted">
-          {discovery && !discovery.mdns && !discovery.broadcast
-            ? 'Automatic discovery is unavailable on this machine — add a node by address below.'
-            : 'No other Haze nodes seen yet.'}
-        </p>
+        <EmptyState
+          icon={WifiOff}
+          title={noMechanism ? 'Automatic discovery is unavailable here' : 'No other Haze nodes seen yet'}
+          hint={
+            noMechanism
+              ? 'Neither mDNS nor the broadcast beacon could start on this machine. Add a node by address below.'
+              : 'Nodes announce themselves every few seconds once the agent is running on them.'
+          }
+        />
       ) : (
         <ul className="divide-y divide-border-subtle">
           {nodes.map((node) => (
@@ -73,63 +82,73 @@ export function NetworkPanel({
       )}
 
       {isolated.length > 0 && (
-        <div className="mt-4 flex items-start gap-2.5 rounded border border-state-busy/30 bg-state-busy/5 px-3 py-2.5">
-          <TriangleAlert size={14} className="mt-0.5 shrink-0 text-state-busy" />
-          <p className="text-xs leading-relaxed text-text-secondary">
-            <strong className="text-text-primary">
-              {isolated.map((n) => n.name).join(', ')}
-            </strong>{' '}
-            {isolated.length === 1 ? 'is advertising' : 'are advertising'} but cannot be
-            connected to. Your access point is probably isolating clients from each other —
-            common on guest networks. No discovery setting can work around it; the machines
-            need a network that permits device-to-device traffic.
-          </p>
-        </div>
+        <Callout tone="warn" icon={TriangleAlert} className="mt-4">
+          <strong className="font-medium text-text-primary">
+            {isolated.map((n) => n.name).join(', ')}
+          </strong>{' '}
+          {isolated.length === 1 ? 'is advertising' : 'are advertising'} but cannot be connected
+          to. Your access point is probably isolating clients from each other — common on guest
+          networks. No discovery setting can work around it; the machines need a network that
+          permits device-to-device traffic.
+        </Callout>
       )}
 
       {!disabled && (
-        <form onSubmit={(e) => void addManual(e)} className="mt-4 flex gap-2 border-t border-border-subtle pt-4">
-          <input
-            value={host}
-            onChange={(e) => setHost(e.target.value)}
-            placeholder="add by address — 192.168.1.42"
-            spellCheck={false}
-            autoComplete="off"
-            className="min-w-0 flex-1 rounded border border-border bg-bg-tertiary px-2.5 py-1.5 font-mono text-xs text-text-primary outline-none transition placeholder:text-text-dim focus:border-accent-primary/60"
-          />
-          <button
-            type="submit"
-            disabled={busy || !host.trim()}
-            className="rounded border border-border px-2.5 py-1.5 text-xs text-text-secondary transition hover:border-accent-primary/50 hover:text-accent-primary disabled:opacity-40"
-          >
-            <Plus size={12} className="inline" /> add
-          </button>
+        <form
+          onSubmit={(e) => void addManual(e)}
+          className="mt-4 flex items-end gap-2 border-t border-border-subtle pt-4"
+        >
+          <Field label="Add a node by address" className="flex-1">
+            {(id) => (
+              <Input
+                id={id}
+                aria-describedby={error ? 'add-node-error' : undefined}
+                value={host}
+                onChange={(e) => setHost(e.target.value)}
+                placeholder="192.168.1.42"
+                mono
+                invalid={Boolean(error)}
+                spellCheck={false}
+                autoComplete="off"
+              />
+            )}
+          </Field>
+          <Button type="submit" icon={Plus} disabled={!host.trim()} loading={busy}>
+            Add
+          </Button>
         </form>
       )}
 
-      {error && <p className="mt-2 text-xs text-state-error">{error}</p>}
+      {error && (
+        <Callout tone="error" className="mt-3">
+          <span id="add-node-error">{error}</span>
+        </Callout>
+      )}
     </Panel>
   );
 }
 
 function NodeRow({ node }: { node: DiscoveredNode }) {
-  const tone =
-    node.reachable === false ? 'error' : node.paired ? 'online' : 'offline';
+  const tone = node.reachable === false ? 'error' : node.paired ? 'online' : 'offline';
 
   return (
-    <li className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
-      <Link2 size={15} className="shrink-0 text-text-muted" />
+    <li className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
+      <Link2 size={16} strokeWidth={2} aria-hidden className="shrink-0 text-text-muted" />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm text-text-primary">{node.name}</p>
-        <p className="truncate font-mono text-[11px] text-text-dim">
+        <p className="truncate font-mono text-2xs text-text-dim">
           {node.short_id} · {node.host}
           {node.port ? `:${node.port}` : ''} · via {node.sources.join(' + ')}
         </p>
       </div>
       {node.paired ? (
-        <Badge tone="online">paired</Badge>
+        <Badge tone="online" dot>
+          paired
+        </Badge>
       ) : (
-        <Badge tone={tone}>{node.reachable === false ? 'unreachable' : 'not paired'}</Badge>
+        <Badge tone={tone} dot>
+          {node.reachable === false ? 'unreachable' : 'not paired'}
+        </Badge>
       )}
     </li>
   );
