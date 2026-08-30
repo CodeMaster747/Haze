@@ -1,6 +1,6 @@
 # Deploying & Updating Haze
 
-- **Live demo:** https://REPLACE_ME-haze.web.app
+- **Live demo:** https://haze-38586.web.app
 - **Repo:** https://github.com/CodeMaster747/Haze
 - **Hosting:** Firebase Hosting, deployed automatically by GitHub Actions
 - **Package:** `haze-agent` on PyPI

@@ -39,3 +39,6 @@ agent/src/haze/webui/
 
 # --- macOS ------------------------------------------------------------------
 .DS_Store
+
+# Firebase CLI deploy cache — local only, machine-specific hashes.
+.firebase/
