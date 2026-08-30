@@ -38,6 +38,15 @@ PROGRESS_PUBLISH_S = 0.4
 second; forwarding each one would spend more effort on the dashboard than on
 the job."""
 
+RETAIN_FINISHED = 40
+"""How many finished jobs to keep.
+
+Beyond this, the oldest are forgotten and their directories deleted. Without a
+limit an agent left running accumulates job records, completed asyncio Task
+objects, and -- worst -- every job's working directory, which for a render job
+holds all its output frames. An agent should not quietly fill a disk because it
+was left on."""
+
 OnUpdate = Callable[[JobRecord], None]
 
 
@@ -99,6 +108,7 @@ class JobExecutor:
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._on_update = on_update
         self.caps = caps or default_caps()
+        self.retain_finished = RETAIN_FINISHED
 
     # --- introspection -----------------------------------------------------
 
@@ -127,6 +137,7 @@ class JobExecutor:
         """Admit or reject a job. Never raises for a bad request -- a rejection
         is a job record with a reason, so the submitter always gets an answer
         in the same shape."""
+        self._prune()
         record = JobRecord(spec=spec)
         self._jobs[spec.job_id] = record
 
@@ -154,6 +165,7 @@ class JobExecutor:
         record.finished_at = dt.datetime.now(dt.UTC)
         _log.info("rejected job %s: %s", record.spec.job_id[:8], reason)
         self._publish(record)
+        self._prune()
         return record
 
     # --- remote mirroring --------------------------------------------------
@@ -374,12 +386,34 @@ class JobExecutor:
             record.duration_s or 0.0,
         )
         self._publish(record)
+        self._prune()
 
     # --- housekeeping ------------------------------------------------------
 
     def _publish(self, record: JobRecord) -> None:
         if self._on_update is not None:
             self._on_update(record)
+
+    def _prune(self) -> None:
+        """Forget old finished jobs, and delete their directories.
+
+        Only finished ones, and only beyond the retention count -- a running
+        job is never touched however old it is.
+        """
+        self._tasks = {
+            job_id: task for job_id, task in self._tasks.items() if not task.done()
+        }
+
+        finished = sorted(
+            (r for r in self._jobs.values() if r.state.terminal),
+            key=lambda r: r.finished_at or r.created_at,
+            reverse=True,
+        )
+        for record in finished[self.retain_finished :]:
+            job_id = record.spec.job_id
+            self._jobs.pop(job_id, None)
+            shutil.rmtree(self.workdir_for(job_id), ignore_errors=True)
+            _log.debug("pruned job %s", job_id[:8])
 
     async def shutdown(self) -> None:
         for job_id in list(self._processes):
@@ -388,13 +422,33 @@ class JobExecutor:
             task.cancel()
 
     def cleanup(self, job_id: str) -> bool:
-        """Delete a finished job's directory."""
+        """Delete one finished job's directory, on request."""
         record = self._jobs.get(job_id)
         if record is None or not record.state.terminal:
             return False
         shutil.rmtree(self.workdir_for(job_id), ignore_errors=True)
         self._jobs.pop(job_id, None)
+        self._tasks.pop(job_id, None)
         return True
+
+    def sweep_orphaned_dirs(self) -> int:
+        """Delete job directories with no corresponding record.
+
+        Runs at startup: an agent that was killed mid-job leaves its working
+        directory behind, and nothing else would ever remove it.
+        """
+        root = config.state_dir() / "jobs"
+        if not root.is_dir():
+            return 0
+        removed = 0
+        for path in root.iterdir():
+            if path.is_dir() and path.name not in self._jobs:
+                shutil.rmtree(path, ignore_errors=True)
+                removed += 1
+        if removed:
+            _log.info("removed %d orphaned job director%s",
+                      removed, "y" if removed == 1 else "ies")
+        return removed
 
 
 def _describe_exit(exit_code: int | None, log_tail: list[str]) -> str:

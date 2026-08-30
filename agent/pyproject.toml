@@ -60,7 +60,7 @@ dev = [
 ]
 
 [project.scripts]
-haze = "haze.cli:app"
+haze = "haze.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/CodeMaster747/Haze"

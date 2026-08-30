@@ -108,6 +108,9 @@ async def start(
 
     pairing = PairingManager(identity.public_key)
     executor = JobExecutor(on_update=_job_listeners.publish)
+    # An agent killed mid-job leaves its working directory behind, and
+    # nothing else would ever remove it.
+    executor.sweep_orphaned_dirs()
     node_server = NodeServer(cfg, identity, pairing, executor)
 
     probe: ResourceProbe

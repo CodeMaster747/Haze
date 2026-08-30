@@ -26,6 +26,11 @@ from haze import log
 
 _log = log.get("config")
 
+
+class HazeConfigError(Exception):
+    """On-disk state that a human needs to fix. The message is user-facing and
+    should always name the file and the remedy."""
+
 # The dashboard port.  Chosen to avoid the well-known local-agent ports a Haze
 # user plausibly already runs: 8384 (Syncthing), 8123 (Home Assistant), 8096
 # (Jellyfin), 11434 (Ollama), 1234 (LM Studio), 47990 (Sunshine).
@@ -90,8 +95,19 @@ def _read_secure_json(path: Path) -> dict[str, Any] | None:
             f"{path} is mode {mode:04o}; it must not be readable by group or others. "
             f"Delete it and restart the agent to mint a fresh token."
         )
-    with path.open() as fh:
-        data: dict[str, Any] = json.load(fh)
+    try:
+        with path.open() as fh:
+            data: dict[str, Any] = json.load(fh)
+    except json.JSONDecodeError as exc:
+        # "Expecting value: line 1 column 1" tells a user nothing about which
+        # file is broken or what to do about it.
+        raise HazeConfigError(
+            f"{path} is not valid JSON ({exc.msg} at line {exc.lineno}).\n"
+            f"Delete it and restart the agent to regenerate it:\n"
+            f"    rm {path}"
+        ) from exc
+    if not isinstance(data, dict):
+        raise HazeConfigError(f"{path} should contain a JSON object; delete it to regenerate.")
     return data
 
 

@@ -140,5 +140,27 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
+def main() -> None:
+    """Entry point.
+
+    Turns the recoverable on-disk conditions -- a corrupt config, a truncated
+    key, a key someone has chmod'd open -- into a message and an exit code.
+    Each of those already carries a precise explanation and a remedy, and
+    burying it under forty lines of traceback both hides the remedy and makes a
+    fixable situation look like a crash.
+
+    Set HAZE_DEBUG=1 to get the traceback back.
+    """
+    try:
+        app()
+    except (config.HazeConfigError, PermissionError, ValueError) as exc:
+        if os.environ.get("HAZE_DEBUG"):
+            raise
+        typer.secho(f"\n{exc}\n", fg=typer.colors.RED, err=True)
+        raise SystemExit(1) from exc
+    except KeyboardInterrupt:
+        raise SystemExit(130) from None
+
+
 if __name__ == "__main__":
-    app()
+    main()
