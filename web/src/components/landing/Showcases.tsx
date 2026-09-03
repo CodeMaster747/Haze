@@ -9,18 +9,18 @@ import {
 } from '@/components/landing/Previews';
 import { Code } from '@/components/ui/Code';
 
-/** The three things worth a full section each, then the three worth a line.
+/** The four things worth a full section each, then the three worth a line.
  *
  *  Ordered the way the product is actually met: it decides, you trust it, it
- *  runs. Each visual is the corresponding surface of the real product rather
- *  than an abstraction of it.
+ *  runs, and it admits what it cannot do. Each visual is the corresponding
+ *  surface of the real product rather than an abstraction of it.
  */
 export function Showcases() {
   return (
     <>
       <Showcase
         id="placement"
-        eyebrow="Placement"
+        label="Placement"
         title="It picks a machine, then shows its working."
         visual={<ExplainPreview />}
       >
@@ -38,10 +38,9 @@ export function Showcases() {
 
       <Showcase
         id="pairing"
-        eyebrow="Trust"
+        label="Trust"
         title="Two screens, one code, and both people have to agree."
         visual={<PairingPreview />}
-        flip
       >
         <p>
           Pairing shows the same six digits and four words on both machines. The code is derived{' '}
@@ -58,7 +57,7 @@ export function Showcases() {
 
       <Showcase
         id="jobs"
-        eyebrow="Jobs"
+        label="Jobs"
         title="Files across, progress back, results home."
         visual={<RunPreview />}
       >
@@ -76,10 +75,9 @@ export function Showcases() {
 
       <Showcase
         id="limits"
-        eyebrow="Limits"
+        label="Limits"
         title="A cap that is not enforced is worse than no cap."
         visual={<LimitsPreview />}
-        flip
       >
         <p>
           You set what each machine will lend. On Linux those caps are real — cgroups v2 kills a

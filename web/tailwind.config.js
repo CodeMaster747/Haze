@@ -1,66 +1,93 @@
 /** @type {import('tailwindcss').Config} */
 // Same token structure as Tracer (bg/text/accent/border scales rather than raw
 // palette colours) so the two projects stay visually related and a component
-// lifted from one drops into the other. The accent differs deliberately:
-// Tracer is violet, Haze is cyan.
+// lifted from one drops into the other.
 //
 // Everything a component needs to look like it belongs here is a token in this
 // file. If a component reaches for an arbitrary value — text-[13px], a hex
 // colour, rounded-[9px] — that is a gap in this file, not a licence to
 // improvise.
+//
+// **Colours are indirected through CSS variables** and the values themselves
+// live in index.css, because there are now two palettes: the dashboard's dark
+// one and the public site's paper one. A component never picks a palette — it
+// names `bg-bg-panel` and gets whichever is in scope. The landing page sets
+// `data-theme="paper"` on its root and nothing else in the tree knows.
+//
+// Two spellings appear below. A token used with an opacity modifier anywhere
+// (`bg-accent-primary/25`) MUST be `rgb(var(--x) / <alpha-value>)`, and its
+// variable is three space-separated channels. Everything else is a plain
+// `var(--x)`, which lets those tokens stay genuinely translucent — the
+// hover/border overlays depend on that, and baking them to solids would break
+// the one property they exist to have.
 export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
     extend: {
       colors: {
         bg: {
-          primary: '#0a0c0e',
-          secondary: '#0f1214',
-          tertiary: '#14181b',
-          panel: '#131719',
-          elevated: '#1a1f23',
-          // Interaction surfaces. Expressed as white overlays rather than
-          // fixed greys so the same hover reads correctly on any of the
-          // surfaces above it.
-          hover: 'rgba(255, 255, 255, 0.04)',
-          active: 'rgba(255, 255, 255, 0.07)',
+          primary: 'rgb(var(--bg-primary) / <alpha-value>)',
+          secondary: 'var(--bg-secondary)',
+          tertiary: 'rgb(var(--bg-tertiary) / <alpha-value>)',
+          panel: 'var(--bg-panel)',
+          elevated: 'var(--bg-elevated)',
+          // Interaction surfaces. Expressed as overlays rather than fixed
+          // greys so the same hover reads correctly on any of the surfaces
+          // above it — and so one rule inverts for the paper theme.
+          hover: 'var(--bg-hover)',
+          active: 'var(--bg-active)',
         },
-        // Four tiers, and 0.50 is the floor. Against the panel surface an
-        // alpha below ~0.49 drops under 4.5:1, and every one of these tiers
-        // carries real information at 11-13px — the hierarchy is made by size
-        // and weight, not by fading text out of legibility.
-        //   primary 16.6:1 · secondary 8.8:1 · muted 5.9:1 · dim 4.7:1
+        // Four tiers, and every one of them clears 4.5:1 against its own
+        // theme's page surface. These carry real information at 11-13px — the
+        // hierarchy is made by size and weight, not by fading text out of
+        // legibility. Measured ratios are in index.css beside the values.
         text: {
-          primary: '#eef2f4',
-          secondary: 'rgba(238, 242, 244, 0.74)',
-          muted: 'rgba(238, 242, 244, 0.58)',
-          dim: 'rgba(238, 242, 244, 0.50)',
+          primary: 'var(--text-primary)',
+          secondary: 'var(--text-secondary)',
+          muted: 'var(--text-muted)',
+          dim: 'var(--text-dim)',
         },
         accent: {
-          primary: '#38bdc9',
-          secondary: '#7fdde5',
-          hover: '#4fcbd6',
-          subtle: 'rgba(56, 189, 201, 0.10)',
+          primary: 'rgb(var(--accent-primary) / <alpha-value>)',
+          secondary: 'var(--accent-secondary)',
+          hover: 'var(--accent-hover)',
+          subtle: 'var(--accent-subtle)',
+        },
+        // The one high-contrast action surface, split out from `accent`
+        // because the two themes disagree about what it should be: on the
+        // dashboard the accent itself is the loudest thing available, while on
+        // paper a rust button would read as a warning and ink does not.
+        solid: {
+          DEFAULT: 'var(--solid)',
+          hover: 'var(--solid-hover)',
+          fg: 'var(--solid-fg)',
         },
         // Node and job state. Named by meaning, not colour, so the status of a
         // node is a data property the UI maps rather than a class name a
         // component hardcodes.
         state: {
-          online: '#3fb950',
-          busy: '#d29922',
-          offline: '#6e7681',
-          error: '#f85149',
-          simulated: '#a371f7',
+          online: 'rgb(var(--state-online) / <alpha-value>)',
+          busy: 'rgb(var(--state-busy) / <alpha-value>)',
+          offline: 'rgb(var(--state-offline) / <alpha-value>)',
+          error: 'rgb(var(--state-error) / <alpha-value>)',
+          simulated: 'rgb(var(--state-simulated) / <alpha-value>)',
         },
         border: {
-          subtle: 'rgba(255, 255, 255, 0.06)',
-          DEFAULT: 'rgba(255, 255, 255, 0.11)',
-          strong: 'rgba(255, 255, 255, 0.18)',
+          subtle: 'var(--border-subtle)',
+          DEFAULT: 'var(--border-default)',
+          strong: 'var(--border-strong)',
         },
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
-        mono: ['JetBrains Mono', 'ui-monospace', 'Menlo', 'monospace'],
+        // IBM Plex rather than Inter: Inter is the default voice of every
+        // generated interface, and Plex has an engineering provenance this
+        // product can borrow. Sans and mono are the same superfamily, so
+        // hostnames in a table line up with the prose around them.
+        sans: ['IBM Plex Sans', 'system-ui', '-apple-system', 'sans-serif'],
+        mono: ['IBM Plex Mono', 'ui-monospace', 'Menlo', 'monospace'],
+        // Display only, and only on the public site. Newsreader gives the
+        // landing page a voice the dashboard deliberately does not have.
+        display: ['Newsreader', 'Georgia', 'Times New Roman', 'serif'],
       },
       letterSpacing: {
         // Mono uppercase labels. Caps at 11px close up into a solid bar
@@ -83,10 +110,11 @@ export default {
         '2xl': ['1.375rem', { lineHeight: '1.875rem' }],
         '3xl': ['1.75rem', { lineHeight: '2.25rem' }],
         // Display sizes. The dashboard never goes above 3xl; the public
-        // landing page needs two steps beyond it, and negative tracking
-        // because Inter opens up noticeably at display sizes.
-        '4xl': ['2.25rem', { lineHeight: '2.625rem', letterSpacing: '-0.02em' }],
-        '5xl': ['3rem', { lineHeight: '3.25rem', letterSpacing: '-0.025em' }],
+        // landing page needs three steps beyond it. Negative tracking because
+        // Newsreader, like most serifs, opens up at display sizes.
+        '4xl': ['2.25rem', { lineHeight: '2.5rem', letterSpacing: '-0.012em' }],
+        '5xl': ['3rem', { lineHeight: '3.15rem', letterSpacing: '-0.016em' }],
+        '6xl': ['4.375rem', { lineHeight: '1.04', letterSpacing: '-0.018em' }],
       },
       // A radius scale by component size, not one value everywhere: a 20px
       // status chip and a 640px dialog do not want the same corner.
@@ -101,8 +129,8 @@ export default {
         // Depth is used twice in this app: to lift a dialog off the page, and
         // to lift a sticky header off content scrolling under it. Nothing else
         // gets a shadow.
-        modal: '0 24px 64px -16px rgba(0, 0, 0, 0.72), 0 0 0 1px rgba(255, 255, 255, 0.05)',
-        header: '0 1px 0 0 rgba(255, 255, 255, 0.06)',
+        modal: '0 24px 64px -16px var(--shadow-modal), 0 0 0 1px var(--border-subtle)',
+        header: '0 1px 0 0 var(--border-subtle)',
       },
       transitionTimingFunction: { 'out-quart': 'cubic-bezier(0.25, 1, 0.5, 1)' },
       transitionDuration: { DEFAULT: '150ms' },

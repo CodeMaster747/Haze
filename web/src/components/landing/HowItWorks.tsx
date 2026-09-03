@@ -1,4 +1,4 @@
-import { Eyebrow, Section } from '@/components/landing/Section';
+import { Display, Section, SectionLabel } from '@/components/landing/Section';
 
 /** Three commands, which is genuinely all of it.
  *
@@ -29,15 +29,13 @@ const STEPS = [
 export function HowItWorks() {
   return (
     <Section id="how-it-works" className="border-t border-border-subtle bg-bg-secondary">
-      <Eyebrow>How it works</Eyebrow>
-      <h2 className="mt-3 max-w-xl text-balance text-2xl font-medium tracking-tight text-text-primary sm:text-3xl">
-        Three commands from one machine to two.
-      </h2>
+      <SectionLabel>How it works</SectionLabel>
+      <Display className="mt-5 max-w-2xl">Three commands from one machine to two.</Display>
 
       <ol className="mt-12 grid gap-10 lg:grid-cols-3 lg:gap-8">
         {STEPS.map((step) => (
-          <li key={step.n} className="flex min-w-0 flex-col border-t border-border pt-6">
-            <span aria-hidden className="font-mono text-2xs tracking-label text-text-dim">
+          <li key={step.n} className="flex min-w-0 flex-col border-t-2 border-text-primary pt-5">
+            <span aria-hidden className="font-display text-2xl leading-none text-accent-primary">
               {step.n}
             </span>
             <h3 className="mt-3 text-base font-medium text-text-primary">{step.title}</h3>

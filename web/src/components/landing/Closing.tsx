@@ -1,6 +1,6 @@
 import { ArrowUpRight } from 'lucide-react';
 
-import { Eyebrow, Section } from '@/components/landing/Section';
+import { Display, Section, SectionLabel } from '@/components/landing/Section';
 import { InstallCommand } from '@/components/landing/InstallCommand';
 import { Button } from '@/components/ui/Button';
 import { navigate } from '@/lib/router';
@@ -38,12 +38,12 @@ const CLAIMS = [
 export function Trust() {
   return (
     <Section id="trust" className="border-t border-border-subtle">
-      <Eyebrow>Security</Eyebrow>
-      <h2 className="mt-3 max-w-xl text-balance text-2xl font-medium tracking-tight text-text-primary sm:text-3xl">
+      <SectionLabel>Security</SectionLabel>
+      <Display className="mt-5 max-w-2xl">
         It runs processes on your machines. That deserves specifics.
-      </h2>
+      </Display>
 
-      <div className="mt-12 grid gap-x-8 gap-y-10 sm:grid-cols-2">
+      <div className="mt-12 grid gap-x-16 gap-y-10 sm:grid-cols-2">
         {CLAIMS.map((claim) => (
           <div key={claim.title} className="border-t border-border pt-6">
             <h3 className="text-base font-medium text-text-primary">{claim.title}</h3>
@@ -71,9 +71,7 @@ export function FinalCta() {
   return (
     <Section className="border-t border-border-subtle bg-bg-secondary">
       <div className="mx-auto max-w-xl text-center">
-        <h2 className="text-balance text-2xl font-medium tracking-tight text-text-primary sm:text-3xl">
-          Try it before you install anything.
-        </h2>
+        <Display>Try it before you install anything.</Display>
         <p className="mt-4 text-base leading-relaxed text-text-secondary">
           The simulated cluster runs entirely in this browser tab. Submit jobs, slow the network,
           take a machine offline mid-render — the hardware is fabricated, the scheduling is not.
