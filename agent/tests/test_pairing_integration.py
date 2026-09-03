@@ -266,6 +266,59 @@ def test_unpairing_revokes_access(cluster: dict[str, Node]) -> None:
     assert "not paired" in str(result["detail"]).lower()
 
 
+def _run_cli(home: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-m", "haze", *args],
+        env={**os.environ, "HAZE_HOME": str(home)},
+        capture_output=True, text=True, timeout=60, check=False,
+    )
+
+
+def test_unpair_takes_the_same_names_the_rest_of_the_cli_does(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """`haze run --on builder` resolves a peer by name; `haze unpair builder`
+    used to insist on the short id and not even say so.
+
+    Its own pair of nodes rather than the module cluster: this revokes, and the
+    shared fixture is stateful.
+    """
+    root = tmp_path_factory.mktemp("unpair")
+    one = Node("keeper", root / "keeper", 7611, 8611)
+    two = Node("leaver", root / "leaver", 7612, 8612)
+
+    one.start()
+    two.start()
+    try:
+        _pair(one, two)
+        assert len(one.peers()) == 1
+
+        # A name that matches nothing lists what would have worked.
+        missing = _run_cli(one.home, "unpair", "nosuchmachine")
+        assert missing.returncode == 1
+        assert "leaver" in missing.stderr, "the error should name the peers it knows"
+
+        # The short id, which is the only thing it used to accept.
+        short = one.peers()[0]["short_id"]
+        assert _run_cli(one.home, "unpair", short).returncode == 0
+        assert one.peers() == []
+
+        # Clear the other side too before re-pairing: while `two` still knows
+        # `one`, the handshake takes the already-paired path and never opens a
+        # pairing request for `_pair` to confirm.
+        for peer in two.peers():
+            two.call("DELETE", f"/peers/{peer['node_id']}")
+        _pair(one, two)
+
+        # The display name, exactly as `haze peers` prints it.
+        done = _run_cli(one.home, "unpair", "leaver")
+        assert done.returncode == 0, done.stderr
+        assert one.peers() == []
+    finally:
+        one.stop()
+        two.stop()
+
+
 # --- fault injection --------------------------------------------------------
 # What happens when a machine goes away mid-job is the difference between a
 # distributed system and a demo. These assert the submitter finds out promptly

@@ -210,13 +210,28 @@ def unpair_command(node_id: str) -> None:
     try:
         canonical = nodeid.normalise(node_id) if len(node_id.replace("-", "")) == 56 else None
         if canonical is None:
-            # Allow the short form shown in `haze peers`.
+            # Accept whatever `haze peers` displays -- the short id or the
+            # display name -- so this takes the same identifiers as
+            # `haze run --on`. Anything a user can read off the screen should
+            # work in the command that acts on it.
+            peers = apiclient.get("/peers")["peers"]
+            target = node_id.strip().upper()
             matches = [
-                p for p in apiclient.get("/peers")["peers"]
-                if p["short_id"].upper() == node_id.strip().upper()
+                p for p in peers
+                if target in {p["short_id"].upper(), p["name"].upper()}
             ]
             if not matches:
-                _fail(f"  no paired peer matching {node_id!r}")
+                known = ", ".join(f"{p['name']} ({p['short_id']})" for p in peers) or "none paired"
+                _fail(f"  no paired peer matching {node_id!r}. Known: {known}")
+                return
+            if len(matches) > 1:
+                # Two machines can share a display name. `haze run --on` takes
+                # the first, which is fine for placing a job and wrong for
+                # revoking trust -- unpairing the machine the user did not mean
+                # is not something they can undo without walking to it.
+                names = ", ".join(f"{p['name']} ({p['short_id']})" for p in matches)
+                _fail(f"  {node_id!r} matches {len(matches)} peers: {names}.\n"
+                      f"  Use the short id to say which one.")
                 return
             canonical = matches[0]["node_id"]
 

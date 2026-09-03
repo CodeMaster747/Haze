@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import socket
 import stat
 import subprocess
 import sys
@@ -103,6 +104,52 @@ def test_debug_still_gives_a_traceback(tmp_path: Path) -> None:
         capture_output=True, text=True, timeout=60, check=False,
     )
     assert "Traceback" in result.stderr
+
+
+# --- a port someone else already has ----------------------------------------
+
+def test_a_busy_node_port_names_the_flag_that_fixes_it(tmp_path: Path) -> None:
+    """`haze up` used to print a full success banner -- Console URL included --
+    and then die in uvicorn's lifespan with `OSError: [Errno 48]`.
+
+    The dashboard port is scanned when it is busy, but the node port cannot be:
+    peers are told it during the handshake and call back on it. So the only
+    honest outcome is a refusal that names the remedy.
+    """
+    home = tmp_path / "haze"
+    home.mkdir(mode=0o700)
+
+    # An ephemeral port, not a fixed one: conftest notes that binding a known
+    # port makes the suite fail whenever a real agent is running here.
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as squatter:
+        squatter.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        squatter.bind(("0.0.0.0", 0))  # noqa: S104
+        squatter.listen(1)
+        taken = squatter.getsockname()[1]
+
+        result = _run_cli(home, "up", "--no-open", "--node-port", str(taken))
+
+    assert result.returncode == 1
+    assert str(taken) in result.stderr
+    assert "--node-port" in result.stderr, "the message should include the fix"
+    assert "haze status" in result.stderr, "it should say how to find the other agent"
+    assert "Traceback" not in result.stderr, "a fixable condition must not look like a crash"
+    # The banner and the browser tab are the actual damage: an agent that is
+    # about to exit must not first tell the user where its console is.
+    assert "Console:" not in result.stdout
+
+
+def test_a_free_node_port_is_not_disturbed(tmp_path: Path) -> None:
+    """The pre-flight must not reject a port that is genuinely available."""
+    from haze import config
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("0.0.0.0", 0))  # noqa: S104
+        taken = s.getsockname()[1]
+        assert config.port_is_free(taken, host="0.0.0.0") is False  # noqa: S104
+
+    # Same port, now that the socket is closed.
+    assert config.port_is_free(taken, host="0.0.0.0") is True  # noqa: S104
 
 
 # --- bounded growth ---------------------------------------------------------

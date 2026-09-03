@@ -77,6 +77,20 @@ class _SecurityHeaders(BaseHTTPMiddleware):
         return response
 
 
+def _is_api_path(path: str) -> bool:
+    """Whether a catch-all path was aimed at the API rather than the dashboard.
+
+    ``path`` arrives without its leading slash. Paths under ``/api/v1`` never
+    reach the catch-alls -- the router answers those -- so this covers the
+    stragglers: a wrong version, or ``/api`` on its own.
+    """
+    return path == "api" or path.startswith("api/")
+
+
+def _api_not_found(path: str) -> JSONResponse:
+    return JSONResponse({"detail": f"no such endpoint: /{path}"}, status_code=404)
+
+
 def create_app(
     cfg: Config,
     api_port: int,
@@ -150,6 +164,25 @@ def create_app(
 
     api.include_router(routes_pairing.router)
     api.include_router(routes_jobs.router)
+
+    # Registered last, so every real route above still wins -- Starlette matches
+    # in registration order. Without this a mistyped API path falls through to
+    # the SPA and comes back as 200 + index.html, which a client then fails to
+    # parse as JSON somewhere far from the typo.
+    #
+    # It sits on `api`, so it inherits require_api_auth: an unauthenticated
+    # caller gets the same 401 a real endpoint gives, and only an authenticated
+    # one is told the route does not exist. A bare 404 here would be a new
+    # unauthenticated way to enumerate which routes are real -- the surface the
+    # disabled OpenAPI docs above are meant to deny.
+    @api.api_route(
+        "/{unmatched:path}",
+        methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
+        include_in_schema=False,
+    )
+    async def api_not_found(unmatched: str) -> JSONResponse:
+        return JSONResponse({"detail": f"no such endpoint: /api/v1/{unmatched}"}, status_code=404)
+
     app.include_router(api)
 
     @app.websocket("/ws")
@@ -170,6 +203,10 @@ def create_app(
 
         @app.get("/{path:path}", include_in_schema=False)
         async def spa(path: str) -> Response:
+            # An API path that got this far is a typo or a wrong version, not a
+            # client-side route: index.html would be a misleading 200.
+            if _is_api_path(path):
+                return _api_not_found(path)
             # Serve a real file if one exists (favicon, manifest), otherwise
             # hand back index.html so client-side routes deep-link correctly.
             candidate = (WEBUI_DIR / path).resolve()
@@ -180,7 +217,11 @@ def create_app(
         _log.warning("dashboard bundle missing at %s -- run `make build-web`", WEBUI_DIR)
 
         @app.get("/{path:path}", include_in_schema=False)
-        async def placeholder(path: str) -> HTMLResponse:
+        async def placeholder(path: str) -> Response:
+            # Same guard as the bundled branch, so a dev checkout and a built
+            # one answer an API typo identically.
+            if _is_api_path(path):
+                return _api_not_found(path)
             return HTMLResponse(_PLACEHOLDER)
 
     return app

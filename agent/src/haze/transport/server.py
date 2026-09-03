@@ -50,6 +50,15 @@ def _containable_outputs(candidates: list[str], workdir: Path) -> list[Path]:
     return kept
 
 
+class NodeListenerError(Exception):
+    """The node-to-node port could not be bound.
+
+    Its own type rather than a bare OSError because the message is written for
+    a user, not a log: it names the port, the likely cause and the flag that
+    resolves it.
+    """
+
+
 class NodeServer:
     """Accepts connections from other Haze nodes."""
 
@@ -63,9 +72,22 @@ class NodeServer:
 
     async def start(self) -> None:
         context = tls.pairing_server_context()
-        self._server = await asyncio.start_server(
-            self._handle, host="0.0.0.0", port=self._cfg.node_port, ssl=context  # noqa: S104
-        )
+        try:
+            self._server = await asyncio.start_server(
+                self._handle, host="0.0.0.0", port=self._cfg.node_port, ssl=context  # noqa: S104
+            )
+        except OSError as exc:
+            # `haze up` pre-flights this port, so reaching here means something
+            # claimed it in the moment between that check and this bind. Rare,
+            # but the raw errno says nothing a user can act on. Note uvicorn
+            # still prints its own traceback around this: the failure happens
+            # inside the app's lifespan, and the readable sentence is the most
+            # that can be added without restructuring startup.
+            raise NodeListenerError(
+                f"could not listen on port {self._cfg.node_port}: {exc.strerror or exc}. "
+                f"Another Haze agent is probably running here -- check with `haze status`, "
+                f"or start this one with `haze up --node-port {self._cfg.node_port + 1}`."
+            ) from exc
         _log.info("node listener on 0.0.0.0:%d (node %s)", self._cfg.node_port,
                   self._identity.short_id)
 

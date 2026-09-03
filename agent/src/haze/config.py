@@ -241,3 +241,26 @@ def find_free_port(start: int, span: int = API_PORT_SCAN) -> int:
         f"no free port in {start}-{start + span - 1}; is another Haze agent already running? "
         f"Try `haze status`."
     )
+
+
+def port_is_free(port: int, host: str = "127.0.0.1") -> bool:
+    """Whether ``port`` can be bound on ``host`` right now.
+
+    Separate from :func:`find_free_port` because the node listener must not
+    move: other machines are told its port during the handshake and store it,
+    so a scan would send an already-paired peer to a port nothing is listening
+    on. For that port the only honest options are "bind it" and "say why not".
+
+    ``host`` defaults to loopback but callers should pass what the server will
+    actually bind -- ``NodeServer`` uses 0.0.0.0, and a port free on loopback
+    may be taken on a LAN interface. SO_REUSEADDR matches asyncio's own
+    ``create_server``, which sets it by default on POSIX, so the probe and the
+    real bind agree.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.bind((host, port))
+        except OSError:
+            return False
+    return True

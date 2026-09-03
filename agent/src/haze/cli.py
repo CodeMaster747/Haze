@@ -50,6 +50,22 @@ def up(
     if actual_port != cfg.api_port:
         typer.secho(f"port {cfg.api_port} busy, using {actual_port}", fg=typer.colors.YELLOW, err=True)
 
+    # The node port is checked here, before anything is written or printed,
+    # because unlike the dashboard port it cannot be scanned: peers are told
+    # this number during the handshake and call back on it. Failing later --
+    # inside the server's lifespan -- would mean printing a success banner and
+    # opening a browser tab for an agent that is about to die.
+    if not config.port_is_free(cfg.node_port, host="0.0.0.0"):  # noqa: S104
+        typer.secho(
+            f"\n  Port {cfg.node_port} is already in use, so other machines could not "
+            f"reach this node.\n"
+            f"  Another Haze agent is probably running here \u2014 check with `haze status`.\n\n"
+            f"  To run a second agent alongside it, give this one its own port:\n"
+            f"      haze up --node-port {cfg.node_port + 1}\n",
+            fg=typer.colors.RED, err=True,
+        )
+        raise typer.Exit(1)
+
     url = f"http://127.0.0.1:{actual_port}/?t={cfg.dashboard_token}"
     config.write_runtime(cfg, actual_port)
 
