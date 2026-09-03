@@ -29,8 +29,10 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 const VARIANTS: Record<Variant, string> = {
   // The one high-contrast surface in the app. Reserved for the single primary
   // action of a panel, so that "what do I do here" is answerable at a glance.
+  // `solid` rather than the accent because the two themes disagree about which
+  // colour that is — see the token's note in index.css.
   primary:
-    'bg-accent-primary text-bg-primary font-medium border border-transparent enabled:hover:bg-accent-hover enabled:active:bg-accent-primary',
+    'bg-solid text-solid-fg font-medium border border-transparent enabled:hover:bg-solid-hover enabled:active:bg-solid',
   secondary:
     'bg-bg-elevated text-text-secondary border border-border enabled:hover:bg-bg-tertiary enabled:hover:text-text-primary enabled:hover:border-border-strong enabled:active:bg-bg-tertiary',
   ghost:

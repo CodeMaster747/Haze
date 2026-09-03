@@ -3,8 +3,104 @@
 @tailwind utilities;
 
 @layer base {
+  /* The dashboard's palette, and the default for every build. The agent's own
+     bundle contains no landing page at all, so `:root` is the only palette it
+     ever resolves.
+
+     Contrast against `--bg-primary`, measured:
+       text-primary 16.6:1 · secondary 8.8:1 · muted 5.9:1 · dim 4.7:1 */
   :root {
     color-scheme: dark;
+
+    --bg-primary: 10 12 14;
+    --bg-secondary: #0f1214;
+    --bg-tertiary: 20 24 27;
+    --bg-panel: #131719;
+    --bg-elevated: #1a1f23;
+    --bg-hover: rgba(255, 255, 255, 0.04);
+    --bg-active: rgba(255, 255, 255, 0.07);
+
+    --text-primary: #eef2f4;
+    --text-secondary: rgba(238, 242, 244, 0.74);
+    --text-muted: rgba(238, 242, 244, 0.58);
+    --text-dim: rgba(238, 242, 244, 0.5);
+
+    --accent-primary: 56 189 201;
+    --accent-secondary: #7fdde5;
+    --accent-hover: #4fcbd6;
+    --accent-subtle: rgba(56, 189, 201, 0.1);
+
+    /* On dark, the accent already is the loudest surface available. */
+    --solid: #38bdc9;
+    --solid-hover: #4fcbd6;
+    --solid-fg: #0a0c0e;
+
+    --state-online: 63 185 80;
+    --state-busy: 210 153 34;
+    --state-offline: 110 118 129;
+    --state-error: 248 81 73;
+    --state-simulated: 163 113 247;
+
+    --border-subtle: rgba(255, 255, 255, 0.06);
+    --border-default: rgba(255, 255, 255, 0.11);
+    --border-strong: rgba(255, 255, 255, 0.18);
+
+    --focus-ring: rgba(56, 189, 201, 0.6);
+    --shadow-modal: rgba(0, 0, 0, 0.72);
+    --scrollbar-thumb: rgba(255, 255, 255, 0.14);
+    --scrollbar-thumb-hover: rgba(255, 255, 255, 0.22);
+  }
+
+  /* The public site. Set on <html> by PublicSite so the body, the overscroll
+     gutter and the scrollbars come with it — a wrapper div would leave all
+     three showing the dashboard's black around the edges of a light page.
+
+     A light theme needs more alpha than a dark one for the same ratio, so the
+     text tiers are not the dark values inverted. Measured against
+     `--bg-primary`: primary 16.0:1 · secondary 8.7:1 · muted 6.1:1 ·
+     dim 4.6:1. The floor is the same as it is above: 4.5:1, no exceptions. */
+  :root[data-theme='paper'] {
+    color-scheme: light;
+
+    --bg-primary: 247 244 238;
+    --bg-secondary: #f2eee5;
+    --bg-tertiary: 238 232 219;
+    --bg-panel: #fffdf8;
+    --bg-elevated: #ffffff;
+    --bg-hover: rgba(28, 26, 21, 0.045);
+    --bg-active: rgba(28, 26, 21, 0.075);
+
+    --text-primary: #1c1a15;
+    --text-secondary: rgba(28, 26, 21, 0.8);
+    --text-muted: rgba(28, 26, 21, 0.7);
+    --text-dim: rgba(28, 26, 21, 0.61);
+
+    --accent-primary: 154 74 31;
+    --accent-secondary: #7a3712;
+    --accent-hover: #7a3712;
+    --accent-subtle: rgba(154, 74, 31, 0.09);
+
+    /* Ink, not rust: a filled rust button at this size reads as a warning,
+       and the accent is doing quieter work elsewhere on the page. */
+    --solid: #1c1a15;
+    --solid-hover: #33302a;
+    --solid-fg: #f7f4ee;
+
+    /* Darkened so each still clears 4.5:1 as text on paper. */
+    --state-online: 47 125 58;
+    --state-busy: 138 96 8;
+    --state-offline: 122 117 108;
+    --state-error: 179 45 31;
+    --state-simulated: 109 63 176;
+
+    --border-subtle: rgba(28, 26, 21, 0.1);
+    --border-default: rgba(28, 26, 21, 0.17);
+    --border-strong: rgba(28, 26, 21, 0.28);
+
+    --focus-ring: rgba(154, 74, 31, 0.55);
+    --shadow-modal: rgba(28, 26, 21, 0.18);
+    --scrollbar-thumb: rgba(28, 26, 21, 0.18);
+    --scrollbar-thumb-hover: rgba(28, 26, 21, 0.3);
   }
 
   html,
@@ -15,9 +111,6 @@
 
   body {
     @apply bg-bg-primary font-sans text-base text-text-primary antialiased;
-    /* Inter's disambiguated lowercase l. This UI is full of hostnames and
-       short ids where l/1/I have to be told apart at 11px. */
-    font-feature-settings: 'cv05' 1;
   }
 
   /* One focus treatment for the whole application, so nothing can end up
@@ -27,7 +120,7 @@
      Controls that want a softer treatment set focus:outline-none and draw
      their own — see Field.tsx — and win on specificity. */
   :focus-visible {
-    outline: 2px solid rgba(56, 189, 201, 0.6);
+    outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
   }
 
@@ -40,7 +133,7 @@
      page; this is the same bar, quieter. */
   * {
     scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
   }
 
   ::-webkit-scrollbar {
@@ -56,11 +149,11 @@
     background-clip: content-box;
     border: 3px solid transparent;
     border-radius: 9999px;
-    background-color: rgba(255, 255, 255, 0.14);
+    background-color: var(--scrollbar-thumb);
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background-color: rgba(255, 255, 255, 0.22);
+    background-color: var(--scrollbar-thumb-hover);
   }
 }
 
