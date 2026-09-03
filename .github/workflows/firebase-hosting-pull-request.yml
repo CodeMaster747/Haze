@@ -6,6 +6,17 @@ concurrency:
   group: deploy-preview-${{ github.ref }}
   cancel-in-progress: true
 
+# The repository's default workflow token is read-only, and on a pull_request
+# this action does two things that write: it opens a check run for the deploy
+# and it comments the preview URL onto the PR. Without these it fails with a
+# bare "Resource not accessible by integration" 403 AFTER uploading, so the
+# preview exists but nothing ever tells you its address. The merge workflow
+# needs none of this -- on a push the action only deploys.
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
 jobs:
   preview:
     # Two guards: forks cannot read repository secrets, and the whole workflow
