@@ -47,6 +47,25 @@ DEFAULT_NODE_PORT = 8443
 DEFAULT_BEACON_PORT = 47654
 
 
+# Windows has no POSIX mode bits: os.stat reports 0666 for every file, and
+# os.chmod can only toggle the read-only flag. A mode check there would reject
+# files that are in fact protected -- access control on Windows comes from the
+# ACL on the user's profile directory, which %USERPROFILE%\.haze inherits and
+# which we cannot meaningfully verify from here. See docs/SECURITY.md.
+ENFORCES_FILE_MODES = os.name != "nt"
+
+
+def insecure_mode(path: Path) -> int | None:
+    """The file's mode if it is group- or world-accessible, else None.
+
+    Always None on Windows, where the mode bits carry no information.
+    """
+    if not ENFORCES_FILE_MODES:
+        return None
+    mode = stat.S_IMODE(path.stat().st_mode)
+    return mode if mode & 0o077 else None
+
+
 def state_dir() -> Path:
     """Root of Haze's on-disk state.  ``HAZE_HOME`` overrides it, which is what
     ``haze devnet`` uses to run N isolated agents on one machine."""
@@ -58,7 +77,7 @@ def ensure_state_dir() -> Path:
     d = state_dir()
     d.mkdir(mode=0o700, parents=True, exist_ok=True)
     # mkdir's mode is ignored if the directory already exists, so fix it up.
-    if stat.S_IMODE(d.stat().st_mode) != 0o700:
+    if ENFORCES_FILE_MODES and stat.S_IMODE(d.stat().st_mode) != 0o700:
         d.chmod(0o700)
     return d
 
@@ -86,8 +105,8 @@ def _write_secure_json(path: Path, payload: dict[str, Any]) -> None:
 def _read_secure_json(path: Path) -> dict[str, Any] | None:
     if not path.exists():
         return None
-    mode = stat.S_IMODE(path.stat().st_mode)
-    if mode & 0o077:
+    mode = insecure_mode(path)
+    if mode is not None:
         # Refuse rather than repair.  A group- or world-readable token file
         # means the token should be considered leaked, and silently chmod-ing it
         # would hide that from the user.

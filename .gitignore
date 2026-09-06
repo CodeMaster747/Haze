@@ -5,6 +5,10 @@ __pycache__/
 venv/
 *.egg-info/
 dist/
+# uv writes this on any `uv run`/`uv build`. The agent is a library-shaped
+# distribution with floor-pinned dependencies, and CI resolves fresh so that a
+# breaking release upstream is caught here rather than by a user's first install.
+uv.lock
 build/
 .pytest_cache/
 .ruff_cache/

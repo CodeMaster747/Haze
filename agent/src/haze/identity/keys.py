@@ -29,7 +29,6 @@ the interactive CLI path; it is the wrong default for the daemon.
 from __future__ import annotations
 
 import os
-import stat
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -131,8 +130,8 @@ def _write_key(path: Path, seed: bytes) -> None:
 
 
 def _read_key(path: Path) -> bytes:
-    mode = stat.S_IMODE(path.stat().st_mode)
-    if mode & 0o077:
+    mode = config.insecure_mode(path)
+    if mode is not None:
         # Refuse rather than repair. A group- or world-readable private key
         # should be treated as compromised, and silently chmod-ing it would
         # hide that fact from the only person who can act on it.

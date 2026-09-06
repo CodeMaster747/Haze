@@ -39,6 +39,13 @@ permissions are looser, rather than silently repairing them — a world-readable
 private key should be treated as compromised, and quietly fixing it would hide
 that from the only person who can act.
 
+That check is POSIX-only. Windows has no mode bits — `os.stat` reports 0666 for
+every file and `os.chmod` only toggles the read-only flag — so the check is
+skipped there rather than being made to fail on every file. On Windows the
+equivalent protection is the ACL on the user's profile directory, which
+`%USERPROFILE%\.haze` inherits: other non-administrator users cannot read it.
+Administrators and SYSTEM can, which is the same caveat root carries on Unix.
+
 ## Pairing
 
 Two nodes establish trust by showing the same six digits on both screens.
@@ -155,7 +162,7 @@ DENY`; interactive API docs disabled.
 | Passive eavesdropping, a hostile router, your ISP | TLS 1.3, AEAD, forward secrecy via ephemeral X25519 |
 | A web page you visit driving your cluster | Bearer token plus an Origin allowlist on both HTTP and the WebSocket upgrade |
 | A revoked peer reconnecting | Unpairing removes it from the trust set; the handshake refuses it |
-| Another local user reading your identity key | 0600 in a 0700 directory; the agent refuses to start if that is loosened |
+| Another local user reading your identity key | 0600 in a 0700 directory; the agent refuses to start if that is loosened (on Windows, the profile directory's ACL) |
 
 ## What Haze does *not* defend against
 

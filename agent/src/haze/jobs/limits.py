@@ -28,11 +28,15 @@ import contextlib
 import enum
 import os
 import platform
-import resource
 import shutil
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
+
+try:
+    import resource
+except ImportError:  # Windows has no rlimits at all; preexec_for returns None there.
+    resource = None  # type: ignore[assignment]
 
 from haze import log
 
@@ -151,7 +155,7 @@ def preexec_for(ram_bytes: int, wall_seconds: int, nice_by: int = 5) -> Callable
     lose to whatever its owner is doing locally. Somebody's laptop becoming
     unusable because they lent it out is how this feature stops being used.
     """
-    if platform.system() == "Windows":
+    if platform.system() == "Windows" or resource is None:
         return None
 
     def apply() -> None:  # pragma: no cover -- runs in the forked child
