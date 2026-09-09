@@ -81,7 +81,9 @@ export function Showcases() {
       >
         <p>
           You set what each machine will lend. On Linux those caps are real — cgroups v2 kills a
-          job that breaches its memory limit and hands it a genuine CPU share.
+          job that breaches its memory limit and hands it a genuine CPU share. On Windows they are
+          real too, in a different shape: a Job Object makes the over-large allocation fail rather
+          than killing the job, and caps the whole process tree&rsquo;s CPU rate.
         </p>
         <p>
           macOS has no equivalent, so there the CPU cap is not enforceable and the memory cap is

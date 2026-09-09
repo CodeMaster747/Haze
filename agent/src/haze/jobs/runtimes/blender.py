@@ -11,11 +11,28 @@ from pathlib import Path
 from typing import Any
 
 from haze.jobs.progress import BlenderProgressParser
-from haze.jobs.runtimes.base import JobArgumentError, Prepared, register, safe_join
+from haze.jobs.runtimes.base import (
+    DEFAULT_WORK_UNITS,
+    JobArgumentError,
+    Prepared,
+    register,
+    safe_join,
+)
 
 # Blender's own device names. An allowlist rather than a pass-through, because
 # this value reaches a command line.
 _DEVICES = {"CPU", "CUDA", "OPTIX", "HIP", "METAL", "ONEAPI"}
+
+SECONDS_PER_FRAME = 30.0
+"""Assumed cost of one frame on a node with speed_factor 1.0.
+
+Frame *count* is exact; frame *cost* is not knowable from the arguments -- a
+scene's sample count and geometry live inside the .blend, and reading them
+would mean opening Blender at submission time. So this is a stated constant
+rather than false precision, and 30s is chosen as a plausible Cycles frame:
+enough compute that a render is worth shipping to a faster machine even after
+the .blend has travelled there, which is the decision this runtime exists for.
+"""
 
 
 class BlenderRuntime:
@@ -77,6 +94,19 @@ class BlenderRuntime:
             cwd=workdir,
             outputs_from="parser",
         )
+
+    def estimate_work_units(self, args: dict[str, Any], inputs: list[Path]) -> float:
+        """Frame count times a stated per-frame constant."""
+        start = args.get("frame_start", 1)
+        end = args.get("frame_end", start)
+        if (
+            not isinstance(start, int) or isinstance(start, bool)
+            or not isinstance(end, int) or isinstance(end, bool)
+            or end < start
+        ):
+            # prepare() rejects these properly; here they are simply unsizeable.
+            return DEFAULT_WORK_UNITS
+        return (end - start + 1) * SECONDS_PER_FRAME
 
 
 register(BlenderRuntime())

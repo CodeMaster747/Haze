@@ -90,6 +90,14 @@ export function PeerList({ enabled }: { enabled: boolean }) {
                     {peer.short_id} · {peer.last_host}:{peer.last_port} ·{' '}
                     {peer.platform || 'unknown'}
                   </p>
+                  {peer.pinned_host && (
+                    /* A pinned address is dialled ahead of the last-seen one,
+                       so showing only the latter would have the dashboard
+                       naming an address the agent is not using. */
+                    <p className="truncate font-mono text-2xs text-text-muted">
+                      pinned {peer.pinned_host}:{peer.pinned_port}
+                    </p>
+                  )}
                 </div>
                 {result && (
                   <span

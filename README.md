@@ -44,6 +44,107 @@ on macOS and Windows, and "this might be malware" is the wrong first impression
 for a tool whose whole premise is running code on your machines. Code signing
 costs $99/yr, which would break the zero-cost rule.
 
+### Windows
+
+Haze is most useful when the machine lending its GPU is the fast one, and that
+machine is usually a Windows gaming PC whose owner has never opened PowerShell.
+This section is written for them. Nothing here needs administrator.
+
+**1. Open PowerShell.** Press the **Windows key**, type `powershell`, press
+Enter. A blue window opens. Do *not* pick "Run as administrator" — Haze does not
+want it, and using it would install Haze for the wrong account.
+
+**2. Paste this one line and press Enter.**
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/CodeMaster747/Haze/main/scripts/install.ps1 | iex"
+```
+
+It installs [uv](https://docs.astral.sh/uv/), then Python, then Haze, and prints
+what to do next. It takes a minute or two.
+
+> **This is a real trust decision, so read it before you take it.** That command
+> downloads a script and runs it immediately — whatever is at that URL at that
+> moment, with your account's permissions. "It's from GitHub" is not a security
+> argument. The honest answer is not to reassure you but to let you check:
+>
+> ```powershell
+> irm https://raw.githubusercontent.com/CodeMaster747/Haze/main/scripts/install.ps1 -OutFile haze-install.ps1
+> notepad haze-install.ps1                       # read it
+> powershell -ExecutionPolicy Bypass -File .\haze-install.ps1
+> ```
+>
+> It is about 200 lines, mostly comments, and it is
+> [`scripts/install.ps1`](scripts/install.ps1) in this repo with its full
+> history. `-ExecutionPolicy Bypass` applies to that one PowerShell process and
+> changes nothing about your machine.
+>
+> You can also skip the script entirely. If you already have uv, the whole
+> install is `uv tool install haze-agent`. The script exists only so that
+> someone who has never seen a terminal does not have to know that.
+
+**3. Start it.**
+
+```powershell
+haze up
+```
+
+A browser tab opens on the dashboard at `http://127.0.0.1:7433`. That address is
+loopback-only and carries a token — nobody else on your network, or the
+internet, can open it. See [SECURITY.md](SECURITY.md#the-loopback-api).
+
+**4. Keep it running across reboots.**
+
+```powershell
+haze autostart enable      # start Haze minimised at every login
+haze autostart disable     # stop doing that
+haze autostart status      # which is it right now?
+```
+
+`enable` writes a small text file called `Haze.cmd` into your Startup folder and
+a "Haze Console" entry into your Start menu. Both are plain text you can open in
+Notepad, and the Startup one contains instructions for removing itself. There are
+three ways to turn it off and they all work: run `haze autostart disable`, delete
+the file (press **Win+R**, type `shell:startup`, Enter), or switch it off in Task
+Manager's **Startup apps** tab.
+
+**5. Watch what it is doing.** Press the Windows key and type `Haze Console`, or
+run `haze open`. Either opens the dashboard for whichever agent is running —
+Haze looks up the live port and token rather than relying on a saved link. While
+Haze is running there is a minimised **Haze** window in your taskbar; closing it
+stops the agent until your next login.
+
+**Where jobs actually run.** Each job gets its own folder under
+`%USERPROFILE%\.haze\jobs\`, and that folder is deleted when the job finishes.
+Haze's own state — your machine's identity key, config, and peer list — lives in
+`%USERPROFILE%\.haze`. Nothing is written outside your user profile, and nothing
+is installed into Windows itself.
+
+**Stopping and unpairing.**
+
+| To do this | Run this |
+|---|---|
+| Stop Haze now | Close the minimised **Haze** window, or press Ctrl+C in it |
+| Stop it coming back at login | `haze autostart disable` |
+| See which machines are paired | `haze peers` |
+| Forget a machine permanently | `haze unpair <short-id>` |
+| Remove Haze entirely | `haze autostart disable`, then `uv tool uninstall haze-agent` |
+
+Unpairing is immediate and one-sided in your favour: the removed machine's next
+connection is refused at the handshake. Deleting `%USERPROFILE%\.haze` discards
+your identity key too, so every other machine will need to pair with you again.
+
+**Why there is no `winget install haze`.** It was investigated and it does not
+work without breaking the rule above. A winget manifest has to point at a
+downloadable installer — the allowed types are `exe`, `msi`, `msix`, `inno`,
+`nullsoft`, `wix`, `burn`, and `zip`/`portable` archives wrapping one of those.
+There is no manifest type that runs `pip install`, so publishing Haze would mean
+freezing it into an unsigned `.exe`, which is exactly the malware warning this
+project refuses to hand you. Winget's own submission checks run every installer
+through multiple antivirus engines, and frozen-Python executables are a
+well-known source of those rejections. So: PowerShell script you can read, or
+`uv tool install haze-agent`. Both are honest about what they are.
+
 ## Pair two machines
 
 ```bash
@@ -68,6 +169,9 @@ that comparison is the entire security model, and neither side can pair alone.
 The code is derived *from* the two machines' public keys, so there is nothing to
 guess. A machine-in-the-middle would have to substitute a key, which makes the
 two screens disagree. See [SECURITY.md](SECURITY.md).
+
+Not on the same network? `--host` takes any routable address, including a
+Tailscale one — see [Across the internet](#across-the-internet).
 
 ## Try it on one machine
 
@@ -118,11 +222,11 @@ The `.blend` is streamed to the desktop with the job, rendered there, and the
 PNGs come back — all over the same mutually-authenticated TLS connection.
 
 **Haze does not run arbitrary commands.** A job names a runtime from a fixed
-allowlist (`hashbench`, `blender`, `ffmpeg`) and supplies typed arguments; the
-runtime builds the command line. There is no shell anywhere in the path, and no
-field a peer controls becomes a command name. Paths are resolved strictly inside
-the job's own directory, so `../../../etc/passwd` is refused rather than
-sanitised.
+allowlist (`hashbench`, `blender`, `ffmpeg`, `whisper`) and supplies typed
+arguments; the runtime builds the command line. There is no shell anywhere in
+the path, and no field a peer controls becomes a command name. Paths are
+resolved strictly inside the job's own directory, so `../../../etc/passwd` is
+refused rather than sanitised.
 
 ### Benchmarking
 
@@ -221,9 +325,21 @@ that line, and a third asserts the surviving agent keeps working.
 | Wall clock | Haze itself | Real everywhere — needs no OS support |
 | Memory (Linux) | cgroups v2 | Real: the kernel kills on breach |
 | CPU (Linux) | cgroups v2 | Real: a genuine share, not a priority hint |
+| Memory (Windows) | Job Objects | Real: the allocation *fails*, rather than the job being killed |
+| CPU (Windows) | Job Objects | Real: a hard rate cap on the whole process tree |
 | Memory (macOS) | `setrlimit` + monitoring | **Advisory.** Bounds address space, not resident set |
 | CPU (macOS) | `nice` | **Not enforceable.** No cgroups, no Job Objects |
-| Memory/CPU (Windows) | monitoring only | Job Objects not implemented yet |
+
+Windows and Linux are both real and they are not the same mechanism: cgroups v2
+OOM-kills a job that exceeds `MemoryMax`, while a Job Object makes the
+allocation fail inside the process — so a job that handles a failed allocation
+gracefully keeps running, inside its cap. Haze reports both as kernel-enforced
+and says which one you have.
+
+The Windows enforcement is the one part of this table that no CI runner
+exercises — [docs/verifying-windows-limits.md](docs/verifying-windows-limits.md)
+is the manual procedure that proves it, including how to tell a kernel refusal
+apart from Haze's own watchdog noticing afterwards.
 
 The dashboard shows which of these you actually got. A cap that silently is not
 enforced is worse than no cap — it makes someone comfortable running a job they
@@ -292,6 +408,63 @@ One case no discovery mechanism can fix: if an access point isolates clients
 from each other (default on most guest networks), Haze detects it — the node
 advertises but no connection can be opened — and names it, rather than showing
 a timeout that sends you hunting in the wrong place.
+
+### Across the internet
+
+**mDNS and broadcast are LAN-only, by design.** Multicast does not cross
+subnets and Haze does not try to make it — a discovery mechanism that
+sometimes worked between networks would be worse than one that never claims
+to. Off-LAN, the third row of that table is the supported path: give Haze the
+address yourself.
+
+Anything that makes the two machines mutually routable works. Tailscale is the
+one worth naming because it is free for personal use and needs no port
+forwarding. It is *your* account, entirely optional, and Haze neither bundles
+it nor talks to it — the no-cloud rule above is about Haze, and it holds.
+
+```bash
+# on both machines
+tailscale up
+tailscale status          # each should list the other
+
+# on the first machine
+tailscale ip -4           # e.g. 100.64.0.5
+haze up
+haze pair --serve         # prints its overlay address as well as its LAN one
+
+# on the second
+haze up
+haze pair --host 100.64.0.5
+```
+
+Nothing about pairing changes. Certificates are pinned to a raw Ed25519 public
+key rather than to a hostname, so an overlay address needs no certificate work,
+and you still compare the same six digits and four words on both screens.
+
+**Pin the address.** Haze records where a peer last connected *from*, and
+rewrites it on every inbound session. A laptop that is sometimes on your LAN
+and sometimes only on Tailscale will otherwise flip between the two:
+
+```bash
+haze address studio --set 100.64.0.5    # observed traffic no longer overwrites it
+haze address studio                     # shows pinned and last-seen
+haze address studio --clear             # back to whatever it last connected from
+```
+
+A pinned address is tried first and the last-seen address second, so a machine
+that moves between the two stays reachable without you touching anything. If
+both fail, the error names both addresses and why each one did.
+
+Known limits, stated plainly:
+
+- **Both machines need the overlay up.** Haze has no relay and no hole
+  punching; if Tailscale is down on either end there is no path, and Haze says
+  so rather than blaming your router.
+- **Discovery still finds nothing off-LAN.** A remote peer will not appear in
+  the dashboard's discovered list. Pinning its address adds it.
+- Latency and throughput over an overlay are worse than on a LAN, and the
+  scheduler already accounts for measured link cost — expect it to keep more
+  work local. `haze explain` will show you why.
 
 ## Architecture
 

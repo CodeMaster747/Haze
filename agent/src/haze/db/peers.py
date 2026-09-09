@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import datetime as dt
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from haze import log
-from haze.db.models import Peer
+from haze.db.models import Peer, PinnedAddress
 from haze.db.session import session
 
 _log = log.get("db.peers")
@@ -100,7 +100,77 @@ async def remove(node_id: str) -> bool:
         peer = await s.get(Peer, node_id)
         if peer is None:
             return False
+        # Explicitly, not by FK cascade. `PRAGMA foreign_keys` is per-connection
+        # and this engine pools connections, so the cascade fires only on
+        # whichever connection happened to run the pragma. Beyond that, unpair
+        # is the user's "forget this machine" gesture: a surviving pin would
+        # reattach to the same node if it were ever re-paired, because the node
+        # ID is derived from the public key and does not change.
+        await s.execute(delete(PinnedAddress).where(PinnedAddress.node_id == node_id))
         await s.delete(peer)
         await s.commit()
         _log.info("unpaired %s", node_id.split("-")[0])
+        return True
+
+
+# --- pinned addresses -------------------------------------------------------
+
+
+async def pinned(node_id: str) -> list[PinnedAddress]:
+    """Addresses pinned for one peer, most recently pinned first."""
+    async with session() as s:
+        result = await s.scalars(
+            select(PinnedAddress)
+            .where(PinnedAddress.node_id == node_id)
+            .order_by(PinnedAddress.set_at.desc(), PinnedAddress.host)
+        )
+        return list(result)
+
+
+async def all_pins() -> dict[str, list[PinnedAddress]]:
+    """Every pin, grouped by node.
+
+    One query rather than one per peer: the callers that need this
+    (`GET /peers`, the scheduler's candidate list) are already iterating
+    :func:`all_peers`.
+    """
+    async with session() as s:
+        result = await s.scalars(
+            select(PinnedAddress).order_by(PinnedAddress.set_at.desc(), PinnedAddress.host)
+        )
+        grouped: dict[str, list[PinnedAddress]] = {}
+        for row in result:
+            grouped.setdefault(row.node_id, []).append(row)
+        return grouped
+
+
+async def pin_address(node_id: str, host: str, port: int) -> bool:
+    """Pin ``host:port`` for a peer, replacing any address pinned before.
+
+    Returns False if the node is not paired -- pinning an address for a machine
+    we have no trust decision about would be a row nothing could ever use.
+    """
+    async with session() as s:
+        peer = await s.get(Peer, node_id)
+        if peer is None:
+            return False
+        # Replace rather than add: one pin per peer is the behaviour the CLI
+        # offers, and a get-or-update keeps a re-pin of the same address from
+        # colliding with a row left over from an earlier one.
+        await s.execute(delete(PinnedAddress).where(PinnedAddress.node_id == node_id))
+        s.add(PinnedAddress(node_id=node_id, host=host, port=port))
+        await s.commit()
+        _log.info("pinned %s at %s:%d", node_id.split("-")[0], host, port)
+        return True
+
+
+async def clear_address(node_id: str) -> bool:
+    """Remove a peer's pinned addresses. False if the node is not paired."""
+    async with session() as s:
+        peer = await s.get(Peer, node_id)
+        if peer is None:
+            return False
+        await s.execute(delete(PinnedAddress).where(PinnedAddress.node_id == node_id))
+        await s.commit()
+        _log.info("cleared pinned address for %s", node_id.split("-")[0])
         return True

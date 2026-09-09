@@ -13,6 +13,7 @@ APIs, no encoders, no permission prompts, no relay bandwidth.
 from __future__ import annotations
 
 import re
+import time
 
 from haze.jobs.spec import Progress
 
@@ -208,6 +209,79 @@ class BlenderProgressParser(ProgressParser):
         average = sum(self._frame_seconds) / len(self._frame_seconds)
         left = (self._p.frames_total or 1) - (self._p.frames_done or 0)
         self._p.eta_seconds = max(0.0, average * left)
+
+    @property
+    def progress(self) -> Progress:
+        return self._p
+
+
+class WhisperProgressParser(ProgressParser):
+    """Parses the lines ``haze.jobs.runtimes.whisper``'s worker prints::
+
+        duration 241.30
+        processed 12.30s / 241.30s
+        segment So the first thing to notice is
+
+    Newline-delimited on purpose. Every whisper CLI worth the name draws a
+    carriage-return progress bar instead, and the executor's reader
+    (``_pump``) works in whole lines -- a ``\\r`` bar emits none, so the job
+    would run to completion showing a bar that never moved. This is the same
+    reason ffmpeg is invoked with ``-nostats``.
+    """
+
+    _DURATION = re.compile(r"^duration\s+([\d.]+)\s*$")
+    _PROCESSED = re.compile(r"^processed\s+([\d.]+)s\s*/\s*([\d.]+)s\s*$")
+
+    def __init__(self) -> None:
+        self._p = Progress(stage="transcribing")
+        self._total: float | None = None
+        self._started = time.monotonic()
+
+    def feed(self, line: str) -> bool:
+        body = line.strip()
+
+        duration = self._DURATION.match(body)
+        if duration:
+            # Announced before the first segment, so the UI has a total during
+            # the long silence while the model loads.
+            self._total = float(duration.group(1)) or None
+            if self._total:
+                self._p.frames_total = int(self._total)
+            return True
+
+        processed = self._PROCESSED.match(body)
+        if processed:
+            done = float(processed.group(1))
+            total = float(processed.group(2)) or self._total
+            self._p.frames_done = int(done)
+            if total:
+                self._total = total
+                self._p.frames_total = int(total)
+                self._p.fraction = min(1.0, max(0.0, done / total))
+            # Audio seconds per wall second -- the natural throughput number for
+            # transcription, and comparable across machines the way "142 fps" is
+            # for a render.
+            elapsed = time.monotonic() - self._started
+            if elapsed > 0 and done > 0:
+                speed = done / elapsed
+                self._p.rate = f"{speed:.1f}x realtime"
+                if total:
+                    self._p.eta_seconds = max(0.0, (total - done) / speed)
+            return True
+
+        if body.startswith("segment "):
+            # The transcript arriving live, which is this runtime's equivalent of
+            # watching frames appear.
+            self._p.detail = body.removeprefix("segment ").strip()[:120]
+            return True
+
+        if body == "done":
+            self._p.fraction = 1.0
+            self._p.stage = "done"
+            self._p.eta_seconds = 0.0
+            return True
+
+        return False
 
     @property
     def progress(self) -> Progress:

@@ -81,5 +81,9 @@ def post(path: str, body: dict[str, Any] | None = None, timeout: float = 15.0) -
     return request("POST", path, body or {}, timeout=timeout)
 
 
+def put(path: str, body: dict[str, Any] | None = None, timeout: float = 15.0) -> Any:
+    return request("PUT", path, body or {}, timeout=timeout)
+
+
 def delete(path: str, timeout: float = 15.0) -> Any:
     return request("DELETE", path, timeout=timeout)

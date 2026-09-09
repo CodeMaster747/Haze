@@ -14,6 +14,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import ipaddress
+import socket
+import ssl
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +53,24 @@ def _containable_outputs(candidates: list[str], workdir: Path) -> list[Path]:
     return kept
 
 
+def _describe(sock: socket.socket) -> str:
+    host, port = sock.getsockname()[:2]
+    return f"{host}:{port}"
+
+
+def _is_dialable(host: str) -> bool:
+    """Whether an observed address is worth recording as a way back.
+
+    A link-local peer (fe80::...) arrives without its scope ID -- that lives in
+    a separate field of the sockaddr -- so the address on its own can never be
+    dialled. Recording it would overwrite a good address with a useless one.
+    """
+    try:
+        return not ipaddress.ip_address(host).is_link_local
+    except ValueError:
+        return True
+
+
 class NodeListenerError(Exception):
     """The node-to-node port could not be bound.
 
@@ -73,7 +94,34 @@ class NodeServer:
     async def start(self) -> None:
         context = tls.pairing_server_context()
         try:
+            # Both families. An overlay network like Tailscale gives a machine
+            # a v4 and a v6 address and users reach for either, so binding only
+            # 0.0.0.0 made half the addresses it advertises silently dead.
+            # asyncio sets IPV6_V6ONLY on the v6 socket, so "::" and "0.0.0.0"
+            # bind the same port without conflicting, and inbound v4 still
+            # arrives on the v4 socket as a plain dotted address rather than a
+            # ::ffff: mapped one.
             self._server = await asyncio.start_server(
+                self._handle,
+                host=["0.0.0.0", "::"],  # noqa: S104
+                port=self._cfg.node_port,
+                ssl=context,
+            )
+        except OSError:
+            # IPv6 can be disabled outright on a host. Refusing to start would
+            # turn a working single-stack machine into a broken one, so fall
+            # back rather than fail -- and let the v4 bind produce the error
+            # message if the port is genuinely taken.
+            self._server = await self._listen_v4_only(context)
+        _log.info(
+            "node listener on %s (node %s)",
+            ", ".join(_describe(sock) for sock in self._server.sockets),
+            self._identity.short_id,
+        )
+
+    async def _listen_v4_only(self, context: ssl.SSLContext) -> asyncio.Server:
+        try:
+            server = await asyncio.start_server(
                 self._handle, host="0.0.0.0", port=self._cfg.node_port, ssl=context  # noqa: S104
             )
         except OSError as exc:
@@ -88,8 +136,8 @@ class NodeServer:
                 f"Another Haze agent is probably running here -- check with `haze status`, "
                 f"or start this one with `haze up --node-port {self._cfg.node_port + 1}`."
             ) from exc
-        _log.info("node listener on 0.0.0.0:%d (node %s)", self._cfg.node_port,
-                  self._identity.short_id)
+        _log.warning("IPv6 unavailable on this machine; listening on IPv4 only")
+        return server
 
     async def stop(self) -> None:
         if self._server is None:
@@ -112,7 +160,11 @@ class NodeServer:
             known = await peer_db.by_public_key(peer.public_key)
 
             if known is not None:
-                await peer_db.touch(peer.node_id, host=host, port=peer.node_port)
+                await peer_db.touch(
+                    peer.node_id,
+                    host=host if _is_dialable(host) else "",
+                    port=peer.node_port,
+                )
                 await frames.write_frame(writer, frames.message("auth_ok", paired=True))
                 _log.info("session with %s (%s)", known.display_name, peer.node_id.split("-")[0])
                 await self._serve_session(reader, writer, peer)

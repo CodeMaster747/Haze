@@ -13,6 +13,7 @@ build/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.mypy_cache_win32/
 .coverage
 htmlcov/
 

@@ -6,6 +6,8 @@
  *  API grows, generate from OpenAPI the way Frugal does.
  */
 
+import type { Decision } from '@/sim/scheduler';
+
 export interface CpuStats {
   percent: number;
   per_core: number[];
@@ -120,6 +122,9 @@ export interface PeerRow {
   version: string;
   last_host: string;
   last_port: number;
+  /** Address the user pinned, if any. Observed traffic never overwrites it. */
+  pinned_host: string;
+  pinned_port: number;
   paired_at: string;
   last_seen_at: string | null;
 }
@@ -195,6 +200,33 @@ export interface Job {
   log_tail: string[];
   outputs: string[];
   peak_ram_bytes: number;
+  /** What the OS was actually made to enforce for this job.
+   *
+   *  Null for a job that never started, and for a peer running a version that
+   *  predates it. Carried per job rather than read off the node's caps because
+   *  a Job Object or a cgroup scope can fail for one job and not the next. */
+  enforcement: Enforcement | null;
+  /** Why this job went where it did, when the scheduler placed it.
+   *
+   *  Null for a job the submitter aimed at a node itself. The shape is the
+   *  scheduler's own Decision -- the same one the demo renders -- because the
+   *  agent runs the identical function and hands its output straight through. */
+  placement: Decision | null;
+}
+
+/** How strongly a cap is actually held.
+ *
+ *  `kernel` does not mean the same mechanism everywhere: Linux OOM-kills a
+ *  cgroup that exceeds its memory cap, while a Windows Job Object makes the
+ *  allocation fail inside the process. Both genuinely bound the job; only one
+ *  is fatal. `notes` carries the difference in words. */
+export type Strength = 'kernel' | 'rlimit' | 'advisory';
+
+export interface Enforcement {
+  ram: Strength;
+  cpu: Strength;
+  wall: Strength;
+  notes: string[];
 }
 
 export interface RuntimeInfo {
@@ -211,6 +243,13 @@ export interface JobCaps {
   /** One line naming what this OS can actually enforce. Shown next to the caps
    *  because a cap that silently is not enforced is worse than no cap. */
   enforcement: string;
+  /** Whether this OS can hold the memory and CPU caps at all.
+   *
+   *  A flag rather than sniffing `enforcement` for a phrase: the UI used to
+   *  test that string for 'cannot enforce', which only ever matched the macOS
+   *  wording, so a Windows node whose Job Object had failed showed no warning
+   *  at all. */
+  enforced: boolean;
 }
 
 export interface JobsState {

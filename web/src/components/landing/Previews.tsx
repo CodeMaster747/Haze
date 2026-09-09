@@ -150,6 +150,8 @@ const ENFORCEMENT: { limit: string; by: string; reality: string; real: boolean }
   { limit: 'Wall clock', by: 'Haze itself', reality: 'Real everywhere', real: true },
   { limit: 'Memory · Linux', by: 'cgroups v2', reality: 'Kernel kills on breach', real: true },
   { limit: 'CPU · Linux', by: 'cgroups v2', reality: 'A genuine share', real: true },
+  { limit: 'Memory · Windows', by: 'Job Objects', reality: 'Allocation fails at the cap', real: true },
+  { limit: 'CPU · Windows', by: 'Job Objects', reality: 'A hard rate cap', real: true },
   { limit: 'Memory · macOS', by: 'setrlimit', reality: 'Advisory only', real: false },
   { limit: 'CPU · macOS', by: 'nice', reality: 'Not enforceable', real: false },
 ];

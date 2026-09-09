@@ -28,6 +28,10 @@ check-agent:  ## ruff + mypy strict + pytest
 # silently runs in DEFAULT mode -- reporting success while checking almost
 # nothing. Verify with `mypy src/haze -v | grep 'Config File'`.
 	cd agent && ../$(PY) -m mypy src/haze
+# The Windows-only ctypes layer is invisible to the run above -- mypy narrows
+# `sys.platform == "win32"` to unreachable everywhere else. A separate cache
+# dir so the two runs do not invalidate each other on every invocation.
+	cd agent && ../$(PY) -m mypy --platform win32 --cache-dir .mypy_cache_win32 src/haze/jobs/winjob.py
 	$(PY) -m pytest agent/tests -q
 
 check-web:  ## eslint + tsc + vitest
@@ -67,4 +71,4 @@ devnet:  ## Start 4 agents with simulated hardware profiles (M2)
 	$(PY) -m haze devnet up -n 4 --open
 
 clean:
-	rm -rf $(WEBUI) web/dist dist .pytest_cache .ruff_cache .mypy_cache
+	rm -rf $(WEBUI) web/dist dist .pytest_cache .ruff_cache .mypy_cache agent/.mypy_cache_win32

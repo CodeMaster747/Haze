@@ -1,4 +1,4 @@
-import { ListChecks, Play, ShieldQuestion, X } from 'lucide-react';
+import { ListChecks, Play, Route, ShieldQuestion, X } from 'lucide-react';
 import { useState } from 'react';
 
 import { Badge } from '@/components/ui/Badge';
@@ -11,6 +11,10 @@ import { Panel } from '@/components/ui/Panel';
 import { bytes, duration } from '@/lib/format';
 import { api } from '@/lib/api';
 import type { Job, JobState, JobsState, PeerRow } from '@/types';
+
+/** Sentinel for the "let the scheduler choose" option. Not a node id, and the
+ *  API would reject it as one -- it is turned into `placement: 'auto'` below. */
+const AUTO = '__auto__';
 
 const TONE: Record<JobState, 'online' | 'busy' | 'offline' | 'error' | 'neutral'> = {
   succeeded: 'online',
@@ -35,6 +39,8 @@ export function JobsPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const auto = target === AUTO;
+
   const submit = async () => {
     setBusy(true);
     setError(null);
@@ -42,8 +48,9 @@ export function JobsPanel({
       await api.submitJob({
         runtime: 'hashbench',
         args: { rounds },
-        node_id: target,
-        label: target ? 'benchmark (remote)' : 'benchmark (local)',
+        // node_id and placement are mutually exclusive: sending both is a 400.
+        ...(auto ? { placement: 'auto' as const } : { node_id: target }),
+        label: auto ? 'benchmark (scheduled)' : target ? 'benchmark (remote)' : 'benchmark (local)',
         cpu_cores: 1,
         wall_seconds: 900,
       });
@@ -81,6 +88,7 @@ export function JobsPanel({
             {(id) => (
               <Select id={id} value={target} onChange={(e) => setTarget(e.target.value)}>
                 <option value="">This machine</option>
+                <option value={AUTO}>Let the scheduler choose</option>
                 {peers.map((p) => (
                   <option key={p.node_id} value={p.node_id}>
                     {p.name} ({p.short_id})
@@ -110,7 +118,7 @@ export function JobsPanel({
         </form>
       )}
 
-      {jobs && jobs.caps.enforcement.includes('cannot enforce') && (
+      {jobs && !jobs.caps.enforced && (
         <Callout tone="warn" className="mb-3">
           {jobs.caps.enforcement}. Jobs are still killed if they exceed a cap, but nothing
           prevents them exceeding it first.
@@ -196,6 +204,17 @@ function JobRow({ job, disabled }: { job: Job; disabled: boolean }) {
             {job.progress.rate || job.progress.stage}
           </span>
         </div>
+      )}
+
+      {job.placement && (
+        /* Why it went there, on the job itself. The full winner-and-losers
+           ranking lives in the assessments this carries; one line is what fits
+           in a list, and it is the scheduler's own sentence rather than a
+           second description of the same decision. */
+        <p className="mt-2 flex items-start gap-1.5 text-2xs leading-relaxed text-text-dim">
+          <Route size={12} className="mt-px shrink-0" aria-hidden />
+          <span>{job.placement.summary}</span>
+        </p>
       )}
 
       {job.error && <p className="mt-2 text-2xs text-state-error">{job.error}</p>}

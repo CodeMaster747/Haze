@@ -53,11 +53,140 @@ jobs:
       - name: Typecheck
         run: cd agent && mypy src/haze
 
+      - name: Typecheck the Windows-only paths
+        # There is no Windows runner here, so without this step the ctypes
+        # layer in jobs/winjob.py is never typechecked at all: its kernel32
+        # calls sit behind `sys.platform == "win32"`, which mypy narrows away
+        # to unreachable on Linux. Checking it as Windows costs seconds on a
+        # runner that is already running -- no new job, no new cost.
+        #
+        # Scoped to that one module deliberately. Everything else branches on
+        # platform.system(), which mypy does not narrow, so both sides are
+        # already checked natively; running the whole package as win32 would
+        # only flag correct, deliberately guarded POSIX code (os.killpg,
+        # SO_REUSEPORT) that Windows never reaches.
+        run: cd agent && mypy --platform win32 --cache-dir .mypy_cache_win32 src/haze/jobs/winjob.py
+
       - name: Test
         # The SPA-serving tests skip themselves when the bundle is absent, so
         # this job stays fast and independent of the web toolchain. The `build`
         # job below is what proves the bundle actually ships.
         run: pytest agent/tests -q
+
+      - name: Lint the Windows bootstrap
+        # `ruff check agent scripts` cannot see scripts/install.ps1, so without
+        # this a typo in the one file a new Windows user runs first would reach
+        # them. pwsh is preinstalled on ubuntu-24.04, so this cannot silently
+        # skip -- and it fails in seconds here rather than after spinning up
+        # the Windows job below.
+        shell: pwsh
+        run: |
+          $errs = $null; $toks = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile(
+              "$PWD/scripts/install.ps1", [ref]$toks, [ref]$errs)
+          if ($errs) {
+            $errs | ForEach-Object {
+              Write-Host "::error file=scripts/install.ps1,line=$($_.Extent.StartLineNumber)::$($_.Message)"
+            }
+            exit 1
+          }
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+          $found = Invoke-ScriptAnalyzer -Path scripts/install.ps1 -Severity Error,Warning
+          if ($found) {
+            $found | ForEach-Object {
+              Write-Host "::error file=scripts/install.ps1,line=$($_.Line)::$($_.RuleName): $($_.Message)"
+            }
+            exit 1
+          }
+          Write-Host "scripts/install.ps1: parses clean, no analyzer findings"
+
+  windows:
+    name: Windows (bootstrap, autostart, pytest)
+    # Pinned, not windows-latest, per the policy note at the top of this file.
+    #
+    # docs/verifying-windows-limits.md used to argue against this job, and named
+    # the condition to revisit: "if Haze ever grows real Windows users". Shipping
+    # an installer and a login entry aimed squarely at a Windows donor machine is
+    # that moment. The cost note there still stands -- Actions is unmetered on
+    # public repositories, and this job starts drawing on the allowance at a 2x
+    # multiplier if this repo is ever made private.
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v7
+
+      # Claim 1: the path an actual friend takes works, end to end, against the
+      # real uv and the real PyPI. This deliberately installs the PUBLISHED
+      # haze-agent rather than this checkout -- it is a test of the bootstrap,
+      # not of the code below it, and conflating the two would test neither.
+      - name: Bootstrap installs Haze from scratch
+        shell: pwsh
+        run: |
+          .\scripts\install.ps1
+          if ($LASTEXITCODE -ne 0) { throw "install.ps1 exited $LASTEXITCODE" }
+
+      - name: The bootstrap actually put haze on PATH
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:USERPROFILE\.local\bin;$env:PATH"
+          haze version
+
+      # Claim 2: this checkout's own code, which is what the PR changes.
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Install this checkout
+        run: pip install -e "./agent[dev]"
+
+      - name: Test
+        # The first time this suite has ever run on Windows. jobs/winjob.py is
+        # 440 lines of ctypes that until now only mypy --platform win32 had ever
+        # looked at; here its kernel32 calls meet an actual kernel.
+        run: pytest agent/tests -q
+
+      - name: Autostart writes, reports, and removes its own entries
+        shell: pwsh
+        run: |
+          haze autostart status
+          haze autostart enable
+          $startup = [Environment]::GetFolderPath('Startup')
+          # Assert against the folder Windows itself reports, not the one the
+          # code derived from %APPDATA%. If those two ever disagree, this is
+          # where it surfaces -- and a shortcut in the wrong folder is a silent
+          # failure everywhere else.
+          if (-not (Test-Path "$startup\Haze.cmd")) {
+            throw "Haze.cmd is not in the folder Windows calls Startup: $startup"
+          }
+          Get-Content "$startup\Haze.cmd"
+          haze autostart status
+          haze autostart disable
+          if (Test-Path "$startup\Haze.cmd") { throw "disable left Haze.cmd behind" }
+          haze autostart status
+
+      # Claim 3: the agent runs on Windows and serves its dashboard. `haze up`
+      # is a foreground process, so it is started detached and stopped by pid.
+      - name: The agent starts, serves the console, and stops
+        shell: pwsh
+        run: |
+          $agent = Start-Process haze -ArgumentList 'up','--no-open' -PassThru
+          try {
+            $url = $null
+            foreach ($i in 1..30) {
+              Start-Sleep -Seconds 1
+              $rt = "$env:USERPROFILE\.haze\agent.json"
+              if (Test-Path $rt) { $url = (Get-Content $rt | ConvertFrom-Json).url }
+              if ($url) { break }
+            }
+            if (-not $url) { throw "agent never wrote ~/.haze/agent.json" }
+            haze status
+            # The token is in the URL; a 200 proves both that it is bound and
+            # that the token round-trips.
+            $r = Invoke-WebRequest -Uri $url -UseBasicParsing
+            if ($r.StatusCode -ne 200) { throw "console returned $($r.StatusCode)" }
+            Write-Host "console served 200 at $($url -replace '\?t=.*', '?t=<redacted>')"
+          } finally {
+            Stop-Process -Id $agent.Id -Force -ErrorAction SilentlyContinue
+          }
 
   web:
     name: Web (eslint, tsc, vitest)

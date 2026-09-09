@@ -138,6 +138,7 @@ export class SimSource implements DataSource {
         max_wall_seconds: 7200,
         allow_gpu: true,
         enforcement: 'simulated — nothing actually executes in the demo',
+      enforced: false,
       },
       runtimes: [
         { name: 'hashbench', available: true, description: 'CPU benchmark' },
@@ -189,6 +190,11 @@ export class SimSource implements DataSource {
       log_tail: [],
       outputs: [],
       peak_ram_bytes: 0,
+      // The simulated cluster runs the same scheduler the agent does, so the
+      // demo fills this from a real decision rather than a mock of one.
+      // The demo executes nothing, so there is nothing that was enforced.
+      enforcement: null,
+      placement: job.decision ?? null,
     };
   }
 }

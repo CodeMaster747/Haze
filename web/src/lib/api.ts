@@ -50,11 +50,17 @@ export const api = {
   submitJob: (body: {
     runtime: string;
     args: Record<string, unknown>;
+    /** 'auto' hands the choice to the scheduler and ignores node_id -- sending
+     *  both is a 400, because guessing which one was meant is worse. */
+    placement?: 'manual' | 'auto';
     node_id?: string;
     label?: string;
     cpu_cores?: number;
     ram_bytes?: number;
     wall_seconds?: number;
+    /** Rough compute size, when the caller knows better than the runtime's own
+     *  estimate. One unit is a second on a node with speed_factor 1.0. */
+    work_units?: number;
   }) => call<unknown>('POST', '/jobs', body),
   cancelJob: (jobId: string) => call<unknown>('POST', `/jobs/${jobId}/cancel`),
   listPeers: () => call<{ self: SelfNode; peers: PeerRow[] }>('GET', '/peers'),

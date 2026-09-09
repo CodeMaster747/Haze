@@ -177,10 +177,12 @@ lists wins is not useful.
 - **Hostile code inside a job.** Haze v1 uses OS process limits, not a
   hypervisor or a hardened container runtime. **Haze is not a
   hostile-multi-tenant sandbox. Only run jobs from machines you own.**
-- **Resource caps on macOS.** cgroups v2 (Linux) and Job Objects (Windows) can
-  genuinely bound CPU and memory. macOS has no equivalent — `setrlimit` and
-  `nice` are what exist, and the caps there are advisory. The UI will say so
-  rather than implying enforcement that is not happening.
+- **Resource caps on macOS.** cgroups v2 (Linux) and Job Objects (Windows) do
+  genuinely bound CPU and memory, though not identically: Linux OOM-kills a job
+  that exceeds its memory cap, whereas a Windows Job Object makes the
+  allocation fail inside the process. macOS has no equivalent — `setrlimit` and
+  `nice` are what exist, and the caps there are advisory. The UI says so rather
+  than implying enforcement that is not happening.
 - **Denial of service**, from a paired peer or anything that can reach the port.
 - **Traffic analysis.** Packet sizes and timing leak job size and activity.
 - **Supply-chain compromise of dependencies.** Reduced by a small dependency

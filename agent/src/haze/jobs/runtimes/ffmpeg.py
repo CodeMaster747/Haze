@@ -9,16 +9,30 @@ minute discovering the same thing.
 from __future__ import annotations
 
 import shutil
-import subprocess
 from pathlib import Path
 from typing import Any
 
+from haze.jobs import media
 from haze.jobs.progress import FfmpegProgressParser
-from haze.jobs.runtimes.base import JobArgumentError, Prepared, register, safe_join
+from haze.jobs.runtimes.base import (
+    DEFAULT_WORK_UNITS,
+    JobArgumentError,
+    Prepared,
+    register,
+    safe_join,
+)
 from haze.probe import encoders as encoder_probe
 
 _SOFTWARE = {"libx264", "libx265", "libsvtav1", "libvpx-vp9"}
 _CONTAINERS = {"mp4", "mkv", "webm", "mov"}
+
+# Seconds of compute per second of video, on a node with speed_factor 1.0.
+# Software encoding is roughly realtime and hardware encoding is several times
+# faster than that, which is the whole reason `preferred_encoders` exists -- so
+# the two must not be estimated identically, or the scheduler would see no
+# compute advantage in the machine with the NVENC card.
+SOFTWARE_REALTIME_FACTOR = 1.0
+HARDWARE_REALTIME_FACTOR = 0.2
 
 
 class FfmpegRuntime:
@@ -75,30 +89,27 @@ class FfmpegRuntime:
 
         return Prepared(
             argv=argv,
-            parser=FfmpegProgressParser(_duration_of(input_path)),
+            parser=FfmpegProgressParser(media.duration_seconds(input_path)),
             cwd=workdir,
             explicit_outputs=[output],
         )
 
+    def estimate_work_units(self, args: dict[str, Any], inputs: list[Path]) -> float:
+        """Video duration times a realtime factor for the chosen encoder.
 
-def _duration_of(path: Path) -> float | None:
-    """Media duration via ffprobe, so progress can be a real fraction.
-
-    Returns None when ffprobe is absent or the file has no duration -- the
-    parser then reports frames and rate but no percentage, which is honest.
-    """
-    ffprobe = shutil.which("ffprobe")
-    if ffprobe is None:
-        return None
-    try:
-        result = subprocess.run(  # noqa: S603 -- resolved path, fixed argv
-            [ffprobe, "-v", "error", "-show_entries", "format=duration",
-             "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
-            capture_output=True, timeout=15, check=False,
+        Duration rather than file size: bitrate varies by an order of magnitude
+        between a phone clip and a ProRes master, so bytes are a poor proxy for
+        how long a transcode takes -- and this is exactly the runtime where the
+        transfer-versus-compute trade-off is decided.
+        """
+        seconds = media.duration_of_named(args.get("input"), inputs)
+        if seconds is None:
+            return DEFAULT_WORK_UNITS
+        encoder = str(args.get("encoder", "libx264"))
+        factor = (
+            SOFTWARE_REALTIME_FACTOR if encoder in _SOFTWARE else HARDWARE_REALTIME_FACTOR
         )
-        return float(result.stdout.decode().strip())
-    except (OSError, subprocess.TimeoutExpired, ValueError):
-        return None
+        return max(seconds * factor, 0.1)
 
 
 register(FfmpegRuntime())

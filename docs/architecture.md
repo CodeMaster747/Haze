@@ -118,27 +118,45 @@ One case no mechanism can fix: an access point isolating clients from each
 other. Haze detects it — the node advertises but no connection opens — and says
 so, rather than reporting a timeout that sends you hunting in the wrong place.
 
+**Off-LAN is the third row, not a fourth mechanism.** Multicast does not cross
+subnets, so discovery is LAN-only by design; over an overlay network like
+Tailscale the user supplies the address. Since certificates are pinned to a
+public key rather than a hostname, an overlay address needs no special
+handling anywhere in the transport. What it does need is somewhere stable to
+live: `peers.last_host` records where a peer last connected *from* and is
+rewritten on every inbound session, so a machine reachable on two networks
+would flip between them. A pinned address (`peer_addresses`) is the user's
+statement of intent, is never overwritten by observed traffic, and is dialled
+first — with the last-seen address as the fallback.
+
 ---
 
 ## Jobs
 
 An **allowlist**, not a shell. A job names a runtime (`hashbench`, `blender`,
-`ffmpeg`) and supplies typed arguments; the runtime builds the argv. No shell
-anywhere, and no peer-controlled field becomes a command name. Paths resolve
-strictly inside the job's own directory.
+`ffmpeg`, `whisper`) and supplies typed arguments; the runtime builds the argv.
+No shell anywhere, and no peer-controlled field becomes a command name. Paths
+resolve strictly inside the job's own directory.
 
 That is narrower than "run this command remotely" and much easier to defend:
 the alternative makes every paired node a remote shell.
 
 **Resource caps report what they actually are.** Linux gets cgroups v2 via
-`systemd-run`: real kernel enforcement. macOS has no equivalent — `RLIMIT_AS`
+`systemd-run`: real kernel enforcement. Windows gets Job Objects — also real,
+but a different shape: a job-wide commit limit makes an over-large allocation
+*fail* rather than killing the job, so Haze reports it as kernel-enforced while
+saying plainly that it is not an OOM kill. macOS has no equivalent — `RLIMIT_AS`
 bounds address space rather than resident set, and CPU share is not enforceable
 at all. The UI says which you got. A cap that silently is not enforced is worse
 than no cap, because it makes someone comfortable running a job they should
 have thought harder about.
 
 Wall clock *is* enforced everywhere, by Haze itself, killing the process
-**group** — ffmpeg and Blender both spawn helpers that outlive their parent.
+**group** — ffmpeg and Blender both spawn helpers that outlive their parent. On
+Windows, where there is no process group to signal, the Job Object does the same
+job better: terminating it takes down every process in the tree atomically, and
+because the handle is opened kill-on-close, even an agent that is killed outright
+does not strand someone's borrowed CPU.
 
 ---
 
@@ -166,6 +184,36 @@ side alone:
 2. The fix for (1) was also wrong — Python's `f"{v:.2f}"` rounds half to even,
    JS `toFixed` rounds half away from zero, so `0.125` differed. Both now round
    with the same floor expression and build the string from integers.
+
+### Placing a real job
+
+`POST /schedule` previews a placement; `POST /jobs` with `placement: "auto"`
+(what `haze run --on auto` sends) commits to one. Same function, same inputs —
+the preview is the decision, not a description of it.
+
+Two of those inputs exist only at submission. `input_bytes` is totalled from
+the files being sent, on the `stat()` that resolves them. `work_units` is a
+**stated estimate**, not a measurement: hashbench multiplies its round count by
+the constant that defines the baseline, Blender its frame count by an assumed
+per-frame cost, and ffmpeg and Whisper take the media's duration from `ffprobe`
+and scale it. A caller who knows better can override it.
+
+Those constants can be wrong by a factor of two without much harm, and it is
+worth knowing why: `work_units` scales *every* candidate's compute term
+identically, so it cannot reorder two nodes on compute alone. What it moves is
+where compute stops outweighing transfer — which is the one judgement the
+scheduler exists to make, and the reason the estimates are per-runtime rather
+than a single global guess.
+
+The preview asks every peer live, because it is rare and deliberate. The submit
+path uses a cached probe: an answer is good for 30 seconds, silence for 5. The
+asymmetry is deliberate — a peer that did not answer reports no runtimes, and
+the hard gate turns that into "cannot run this job", so caching silence as long
+as an answer would lock a machine that just woke up out of every placement.
+
+The decision is stored on the job as `placement`, which is why it is a field
+and not a log line: a remote job's `log_tail` is replaced wholesale by the
+peer's own, and that is exactly the job whose placement is worth explaining.
 
 ---
 

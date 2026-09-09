@@ -8,6 +8,7 @@ that would look like a discovery bug rather than a design mistake.
 
 from __future__ import annotations
 
+import logging
 import time
 
 from haze.discovery.registry import DiscoveryRegistry
@@ -107,3 +108,35 @@ def test_manual_entries_are_addressable_before_identity_is_known() -> None:
     assert node.host == "10.0.0.5"
     assert "manual" in node.sources
     assert node.node_id.startswith("manual:")
+
+
+def test_an_unreachable_manual_entry_is_not_blamed_on_the_access_point(caplog) -> None:
+    """Client isolation is diagnosed from a node advertising and then not
+    answering. An address the user typed carries no such evidence -- it may be
+    a typo, or a machine on the other side of the world that is switched off.
+    Blaming the router for that sends them hunting in the wrong place.
+    """
+    registry = _registry()
+    registry.add_manual("100.64.0.5", 8443)
+    for node in registry.nodes():
+        node.reachable = False
+
+    with caplog.at_level(logging.WARNING):
+        registry._warn_about_isolation()
+
+    assert "access point" not in caplog.text
+    assert "100.64.0.5" in caplog.text, "it should still say which address did not answer"
+
+
+def test_an_unreachable_advertised_node_still_is(caplog) -> None:
+    """The original diagnosis was right for the case it was written for, and
+    narrowing it must not throw that away."""
+    registry = _registry()
+    registry._record(_seen("NODE-A", sources={"mdns"}))
+    for node in registry.nodes():
+        node.reachable = False
+
+    with caplog.at_level(logging.WARNING):
+        registry._warn_about_isolation()
+
+    assert "access point" in caplog.text

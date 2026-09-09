@@ -10,10 +10,11 @@ import os
 import sys
 import webbrowser
 
+import psutil
 import typer
 
 import haze
-from haze import cli_devnet, cli_jobs, cli_pairing, config, log
+from haze import cli_autostart, cli_devnet, cli_jobs, cli_pairing, config, log
 
 app = typer.Typer(
     name="haze",
@@ -128,12 +129,14 @@ def open_console() -> None:
 
 app.add_typer(cli_pairing.pair_app, name="pair")
 app.add_typer(cli_devnet.devnet_app, name="devnet")
+app.add_typer(cli_autostart.autostart_app, name="autostart")
 app.command("run")(cli_jobs.run_command)
 app.command("jobs")(cli_jobs.jobs_command)
 app.command("bench")(cli_jobs.bench_command)
 app.command("explain")(cli_jobs.explain_command)
 app.command("peers")(cli_pairing.peers_command)
 app.command("unpair")(cli_pairing.unpair_command)
+app.command("address")(cli_pairing.address_command)
 app.command("id")(cli_pairing.id_command)
 
 
@@ -145,15 +148,17 @@ def version() -> None:
 
 
 def _pid_alive(pid: int) -> bool:
+    """Whether a pid is a live process.
+
+    psutil rather than the usual `os.kill(pid, 0)`: on POSIX signal 0 tests
+    existence without touching the process, but Windows has no signals, and
+    CPython's os.kill maps the value 0 to CTRL_C_EVENT -- so the idiom that
+    merely asks "are you there?" everywhere else would ask `haze status` and
+    `haze open` to Ctrl+C the very agent they were called to report on.
+    """
     if pid <= 0:
         return False
-    try:
-        os.kill(pid, 0)   # signal 0 tests existence without touching the process
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True       # exists, owned by someone else
-    return True
+    return psutil.pid_exists(pid)
 
 
 def main() -> None:

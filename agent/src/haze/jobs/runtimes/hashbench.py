@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from haze.jobs.progress import ProgressParser
-from haze.jobs.runtimes.base import JobArgumentError, Prepared, register
+from haze.jobs.runtimes.base import DEFAULT_WORK_UNITS, JobArgumentError, Prepared, register
 from haze.jobs.spec import Progress
 
 CHUNK = 1 << 20        # 1 MiB block
@@ -29,6 +29,15 @@ PASSES_PER_ROUND = 32  # ~32 MiB hashed per round
 # `rounds` a meaningful dial: 200 rounds is a few seconds of real work, and
 # the difference between a fast and a slow machine is visible rather than
 # lost in process startup.
+
+SECONDS_PER_ROUND = 0.02
+"""How long one round takes on a node with speed_factor 1.0.
+
+The only work estimate in Haze that is not a guess: speed_factor 1.0 is defined
+as this benchmark's baseline, so `rounds x this` is what a work unit means
+rather than an approximation of it. Measured on the reference laptop; a node
+twice as fast is exactly what speed_factor 2.0 says it is.
+"""
 
 
 class _BenchProgressParser(ProgressParser):
@@ -78,6 +87,15 @@ class HashBenchRuntime:
             parser=_BenchProgressParser(rounds),
             cwd=workdir,
         )
+
+    def estimate_work_units(self, args: dict[str, Any], inputs: list[Path]) -> float:
+        """Exact, by construction -- this runtime *is* the baseline."""
+        rounds = args.get("rounds", 200)
+        if not isinstance(rounds, int) or isinstance(rounds, bool) or rounds < 1:
+            # prepare() will reject this shortly with a message for a human.
+            # Sizing it is not this function's job.
+            return DEFAULT_WORK_UNITS
+        return rounds * SECONDS_PER_ROUND
 
 
 register(HashBenchRuntime())

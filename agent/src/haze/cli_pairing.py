@@ -11,6 +11,7 @@ device on your network could pair itself while you were in another room.
 
 from __future__ import annotations
 
+import ipaddress
 import time
 from typing import Any
 
@@ -22,6 +23,19 @@ from haze.identity import keys, nodeid
 pair_app = typer.Typer(help="Pair this machine with another Haze node.")
 
 POLL_INTERVAL_S = 0.4
+
+
+def _hostport(host: str, port: int) -> str:
+    """Render an address the way it would be typed back in.
+
+    A bare IPv6 literal needs brackets or `::1:8443` is unreadable -- the
+    colons run together and there is no telling where the address ends.
+    """
+    try:
+        bracket = ipaddress.ip_address(host.split("%")[0]).version == 6
+    except ValueError:
+        bracket = False
+    return f"[{host}]:{port}" if bracket else f"{host}:{port}"
 
 
 def _fail(message: str) -> None:
@@ -108,7 +122,9 @@ def _serve_pairing(ttl: float) -> None:
     typer.echo()
     typer.secho(f"  Waiting for a node to pair with {me['name']} ({me['short_id']})",
                 fg=typer.colors.BRIGHT_WHITE)
-    typer.echo(f"  On the other machine run:  haze pair --host {_best_lan_hint()}")
+    for address, label in _address_hints():
+        suffix = f"   ({label})" if label else ""
+        typer.echo(f"  On the other machine run:  haze pair --host {address}{suffix}")
     typer.secho(f"  Open for {ttl:.0f}s. Ctrl-C to stop.", fg=typer.colors.BRIGHT_BLACK)
 
     pending = _await_pending("incoming", ttl)
@@ -158,12 +174,17 @@ def _report_result(node_id: str, name: str) -> None:
     _fail("  the other machine did not confirm in time.")
 
 
-def _best_lan_hint() -> str:
-    """A LAN address to print in the instructions.
+# Tailscale allocates from the RFC 6598 shared range. Recognising it is only
+# used to offer the address in a hint; nothing depends on being right.
+_OVERLAY_V4 = ipaddress.ip_network("100.64.0.0/10")
+
+
+def _default_route_address() -> str:
+    """The local address the routing table would use to reach the internet.
 
     Best effort: connects a UDP socket to a public address to learn which local
-    interface the routing table would use. Nothing is sent -- connect() on a
-    datagram socket only sets the default destination.
+    interface would be chosen. Nothing is sent -- connect() on a datagram
+    socket only sets the default destination.
     """
     import socket
 
@@ -172,7 +193,47 @@ def _best_lan_hint() -> str:
             s.connect(("192.0.2.1", 9))  # TEST-NET-1, guaranteed unroutable
             return str(s.getsockname()[0])
     except OSError:
-        return "<this machine's LAN address>"
+        return ""
+
+
+def _overlay_address() -> str:
+    """This machine's overlay address, if it is on one.
+
+    The default route is the wrong answer on a machine whose peers are reached
+    over Tailscale: it names the LAN interface, and printing it tells the user
+    to type an address the other machine cannot reach. psutil is already a
+    dependency and enumerates interfaces on all three platforms, which parsing
+    `ip` or `ifconfig` output does not.
+    """
+    import psutil
+
+    for addresses in psutil.net_if_addrs().values():
+        for address in addresses:
+            try:
+                parsed = ipaddress.ip_address(address.address.split("%")[0])
+            except (ValueError, AttributeError):
+                continue
+            if parsed.version == 4 and parsed in _OVERLAY_V4:
+                return str(parsed)
+    return ""
+
+
+def _address_hints() -> list[tuple[str, str]]:
+    """Addresses to offer the other machine, each with a label.
+
+    Both are offered when both exist rather than guessing: only the user knows
+    whether the other machine is on this network.
+    """
+    hints = []
+    lan = _default_route_address()
+    overlay = _overlay_address()
+    if lan and lan != overlay:
+        hints.append((lan, "on this network"))
+    if overlay:
+        hints.append((overlay, "if it is not on this network"))
+    if not hints:
+        hints.append(("<this machine's address>", ""))
+    return hints
 
 
 # --- peers ------------------------------------------------------------------
@@ -201,40 +262,48 @@ def peers_command() -> None:
         typer.echo(f"           {peer['node_id']}")
         typer.echo(f"           {peer['platform'] or 'unknown'} · haze {peer['version'] or '?'}")
         typer.echo(f"           last seen {seen}  at {peer['last_host'] or '?'}")
+        if peer.get("pinned_host"):
+            typer.secho(
+                f"           pinned    {_hostport(peer['pinned_host'], peer['pinned_port'])}",
+                fg=typer.colors.CYAN,
+            )
         typer.echo()
+
+
+def _resolve_peer(identifier: str) -> str:
+    """Turn what a user typed into a canonical node id.
+
+    Accepts whatever `haze peers` displays -- the short id or the display name
+    -- so peer commands take the same identifiers as `haze run --on`. Anything
+    a user can read off the screen should work in the command that acts on it.
+
+    Refuses to guess when a display name matches two machines. `haze run --on`
+    takes the first match, which is fine for placing a job and wrong for
+    anything that changes a peer: unpairing or misdirecting the address of the
+    machine the user did not mean is not something they can undo remotely.
+    """
+    if len(identifier.replace("-", "")) == 56:
+        return nodeid.normalise(identifier)
+
+    peers = apiclient.get("/peers")["peers"]
+    target = identifier.strip().upper()
+    matches = [p for p in peers if target in {p["short_id"].upper(), p["name"].upper()}]
+
+    if not matches:
+        known = ", ".join(f"{p['name']} ({p['short_id']})" for p in peers) or "none paired"
+        _fail(f"  no paired peer matching {identifier!r}. Known: {known}")
+    if len(matches) > 1:
+        names = ", ".join(f"{p['name']} ({p['short_id']})" for p in matches)
+        _fail(f"  {identifier!r} matches {len(matches)} peers: {names}.\n"
+              f"  Use the short id to say which one.")
+    return str(matches[0]["node_id"])
 
 
 def unpair_command(node_id: str) -> None:
     """Remove a paired node. Its next connection is refused at the handshake."""
     log.setup()
     try:
-        canonical = nodeid.normalise(node_id) if len(node_id.replace("-", "")) == 56 else None
-        if canonical is None:
-            # Accept whatever `haze peers` displays -- the short id or the
-            # display name -- so this takes the same identifiers as
-            # `haze run --on`. Anything a user can read off the screen should
-            # work in the command that acts on it.
-            peers = apiclient.get("/peers")["peers"]
-            target = node_id.strip().upper()
-            matches = [
-                p for p in peers
-                if target in {p["short_id"].upper(), p["name"].upper()}
-            ]
-            if not matches:
-                known = ", ".join(f"{p['name']} ({p['short_id']})" for p in peers) or "none paired"
-                _fail(f"  no paired peer matching {node_id!r}. Known: {known}")
-                return
-            if len(matches) > 1:
-                # Two machines can share a display name. `haze run --on` takes
-                # the first, which is fine for placing a job and wrong for
-                # revoking trust -- unpairing the machine the user did not mean
-                # is not something they can undo without walking to it.
-                names = ", ".join(f"{p['name']} ({p['short_id']})" for p in matches)
-                _fail(f"  {node_id!r} matches {len(matches)} peers: {names}.\n"
-                      f"  Use the short id to say which one.")
-                return
-            canonical = matches[0]["node_id"]
-
+        canonical = _resolve_peer(node_id)
         apiclient.delete(f"/peers/{canonical}")
         typer.secho(f"  unpaired {nodeid.short(canonical)}", fg=typer.colors.YELLOW)
     except apiclient.AgentNotRunningError as exc:
@@ -253,4 +322,76 @@ def id_command() -> None:
     typer.secho(f"  {identity.node_id}", fg=typer.colors.BRIGHT_MAGENTA)
     typer.echo(f"  short  {identity.short_id}")
     typer.echo(f"  key    {config.state_dir() / keys.KEY_FILENAME}")
+    typer.echo()
+
+
+# --- addresses ---------------------------------------------------------------
+
+def address_command(
+    peer: str = typer.Argument(..., help="Short id or name, as `haze peers` shows it."),
+    set_: str = typer.Option("", "--set", help="Address to pin for this peer."),
+    port: int = typer.Option(0, "--port", help="Its node port (default 8443)."),
+    clear: bool = typer.Option(False, "--clear", help="Forget the pinned address."),
+) -> None:
+    """Show, pin, or clear the address used to reach a peer.
+
+    Haze records where a peer last connected from, and overwrites it on every
+    inbound session. A machine reachable both on the LAN and over an overlay
+    network therefore flips between the two. Pinning an address settles it:
+    observed traffic no longer overwrites it, and it is tried first.
+
+    The address is taken as a bare host with a separate --port rather than a
+    `host:port` string, so an IPv6 literal needs no brackets and no escaping.
+    """
+    log.setup()
+    if set_ and clear:
+        _fail("  give either --set <address> or --clear, not both.")
+
+    try:
+        node_id = _resolve_peer(peer)
+
+        if clear:
+            apiclient.delete(f"/peers/{node_id}/address")
+            typer.secho(f"\n  cleared the pinned address for {peer}\n", fg=typer.colors.YELLOW)
+            return
+
+        if set_:
+            result = apiclient.put(
+                f"/peers/{node_id}/address", {"host": set_.strip(), "port": port}
+            )
+            typer.secho(f"\n  pinned {peer} at {_hostport(result['host'], result['port'])}\n",
+                        fg=typer.colors.GREEN, bold=True)
+            return
+
+        _show_addresses(node_id)
+    except apiclient.AgentNotRunningError as exc:
+        _fail(str(exc))
+    except apiclient.ApiError as exc:
+        _fail(f"  {exc}")
+
+
+def _show_addresses(node_id: str) -> None:
+    """Print what is known about how to reach one peer, in dial order."""
+    match = next(
+        (p for p in apiclient.get("/peers")["peers"] if p["node_id"] == node_id), None
+    )
+    if match is None:  # pragma: no cover - resolved a moment ago
+        _fail("  that peer is no longer paired.")
+        return
+
+    typer.echo()
+    typer.secho(f"  {match['short_id']}  {match['name']}", fg=typer.colors.GREEN)
+    if match.get("pinned_host"):
+        typer.secho(f"    pinned      {_hostport(match['pinned_host'], match['pinned_port'])}",
+                    fg=typer.colors.CYAN)
+    else:
+        typer.secho("    pinned      none", fg=typer.colors.BRIGHT_BLACK)
+    if match["last_host"]:
+        typer.echo(f"    last seen   {_hostport(match['last_host'], match['last_port'])}")
+    else:
+        typer.secho("    last seen   never", fg=typer.colors.BRIGHT_BLACK)
+
+    if not match.get("pinned_host") and not match["last_host"]:
+        typer.secho("\n    Nothing to dial. Pin an address with "
+                    "`haze address <peer> --set <host>`.", fg=typer.colors.YELLOW)
     typer.echo()

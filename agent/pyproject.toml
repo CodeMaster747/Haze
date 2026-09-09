@@ -15,6 +15,25 @@ license = { text = "MIT" }
 authors = [{ name = "Rahul Akshath" }]
 keywords = ["distributed-computing", "resource-sharing", "lan", "self-hosted"]
 
+# Windows is listed because it is supported, not aspirationally: jobs/winjob.py
+# enforces caps through Job Objects there, and scripts/install.ps1 plus
+# `haze autostart` exist so a Windows donor machine can be set up by someone who
+# does not use a terminal. Without these, PyPI advertises no OS support at all.
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Distributed Computing",
+    "Topic :: System :: Clustering",
+]
+
 dependencies = [
     # The loopback dashboard API.  Bound to 127.0.0.1 only -- see api/app.py for
     # why that binding is load-bearing rather than a default.
@@ -46,6 +65,13 @@ dependencies = [
 # metadata and is useless on the ~half of plausible Haze nodes that are Macs or
 # AMD boxes.  probe/gpu_nvidia.py imports it lazily and degrades to "no GPU".
 nvidia = ["nvidia-ml-py>=12.560.30"]
+
+# Speech transcription.  An extra for the same reason: it pulls ctranslate2 and
+# hundreds of MB of model weights, which is a lot to impose on a node that will
+# only ever render Blender frames.  jobs/runtimes/whisper.py imports it lazily
+# inside the worker subprocess, and available() reports False without it -- the
+# scheduler then rules this node ineligible for whisper jobs, with a reason.
+whisper = ["faster-whisper>=1.1.0"]
 
 dev = [
     "pytest>=8.3.0",
@@ -120,6 +146,13 @@ ignore = [
 # C408: dict(...) reads better than a brace literal for keyword-style test
 # fixtures that are then splatted over with overrides.
 "**/tests/*" = ["S101", "S105", "S106", "S311", "S603", "S310", "S108", "C408"]
+# N801: the ctypes structure names are the Win32 header's, verbatim.  A CapWords
+# rename would break the one thing that makes a ctypes translation auditable --
+# pasting the name into the SDK docs and comparing the fields one by one.
+"**/jobs/winjob.py" = ["N801"]
+# N802: the fake kernel32 stands in for the real one, so its methods have to be
+# spelled CreateJobObjectW and friends -- that is the whole point of it.
+"**/tests/test_limits.py" = ["N802"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["haze"]
@@ -133,8 +166,24 @@ warn_unreachable = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
+# The Windows-only ctypes layer.  Its kernel32 calls sit behind
+# `sys.platform == "win32"` guards, which mypy narrows -- so exactly one branch
+# is dead on whichever platform it is checked as, and this module is
+# deliberately checked BOTH ways (see the `mypy --platform win32` step in CI and
+# in `make check-agent`).  Scoped to this one module so everything else keeps
+# warn_unreachable.
+module = "haze.jobs.winjob"
+warn_unreachable = false
+
+[[tool.mypy.overrides]]
 # Ships no py.typed.  Imported lazily in probe/gpu_nvidia.py behind a try/except.
 module = ["pynvml", "pynvml.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Optional extra, so it is absent on most machines and in CI.  Imported lazily
+# inside the worker in jobs/runtimes/whisper.py.
+module = ["faster_whisper", "faster_whisper.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

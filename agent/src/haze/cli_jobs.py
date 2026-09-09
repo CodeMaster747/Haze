@@ -29,17 +29,45 @@ def _bar(fraction: float | None) -> str:
     return "█" * filled + "░" * (BAR_WIDTH - filled)
 
 
-def _resolve_node(target: str) -> tuple[str, str]:
-    """Map a name or short id to (node_id, display name). '' means locally."""
+def _resolve_node(target: str) -> tuple[str, str, str]:
+    """Map a name or short id to (node_id, display name, placement mode).
+
+    '' means locally and 'auto' hands the choice to the scheduler, which is why
+    "auto" is a reserved node name: a peer that happens to be called that is
+    addressed by its short id instead.
+    """
     if not target:
-        return "", "this machine"
+        return "", "this machine", "manual"
+    if target.lower() == "auto":
+        return "", "auto", "auto"
     peers = apiclient.get("/peers")["peers"]
     for peer in peers:
         if target.upper() in {peer["short_id"].upper(), peer["name"].upper()}:
-            return str(peer["node_id"]), str(peer["name"])
+            return str(peer["node_id"]), str(peer["name"]), "manual"
     known = ", ".join(f"{p['name']} ({p['short_id']})" for p in peers) or "none paired"
     _fail(f"  no paired node matching {target!r}. Known: {known}")
     raise AssertionError("unreachable")
+
+
+def _announce_placement(job: dict[str, Any]) -> None:
+    """Print who won and the one-line reason, before progress starts moving.
+
+    The names come out of the decision itself rather than being re-derived
+    here: the scheduler already knows what it called each node, and two places
+    naming the same machine differently is how a trace stops being trusted.
+    """
+    decision = job.get("placement")
+    if not decision:
+        return
+    typer.secho(f"  → {decision['summary']}", fg=typer.colors.BRIGHT_MAGENTA)
+    winner = next(
+        (a for a in decision["assessments"] if a["node_id"] == decision["chosen"]), None
+    )
+    if winner is not None:
+        typer.secho(
+            f"    running on {winner['name']} · ~{winner['estimated_seconds']:.1f}s predicted\n",
+            fg=typer.colors.BRIGHT_BLACK,
+        )
 
 
 def _follow(job_id: str, quiet: bool = False) -> dict[str, Any]:
@@ -66,14 +94,21 @@ def _follow(job_id: str, quiet: bool = False) -> dict[str, Any]:
 
 
 def run_command(
-    runtime: str = typer.Argument(..., help="Which runtime: hashbench, blender, ffmpeg."),
-    on: str = typer.Option("", "--on", help="Node name or short id. Omit to run here."),
+    runtime: str = typer.Argument(..., help="Which runtime: hashbench, blender, ffmpeg, whisper."),
+    on: str = typer.Option("", "--on",
+        help="Node name or short id, or 'auto' to let the scheduler choose. "
+             "Omit to run here."),
     rounds: int = typer.Option(0, "--rounds", help="hashbench: how much work."),
     blend: str = typer.Option("", "--blend", help="blender: .blend file in the job directory."),
     frames: str = typer.Option("", "--frames", help="blender: e.g. 1-10."),
-    device: str = typer.Option("CPU", "--device", help="blender: CPU, METAL, CUDA, OPTIX..."),
+    device: str = typer.Option("CPU", "--device",
+        help="blender: CPU, METAL, CUDA, OPTIX... · whisper: cpu, cuda, auto."),
     src: str = typer.Option("", "--input", help="ffmpeg: input file in the job directory."),
     encoder: str = typer.Option("libx264", "--encoder", help="ffmpeg encoder."),
+    audio: str = typer.Option("", "--audio", help="whisper: audio file to transcribe."),
+    model: str = typer.Option("base", "--model", help="whisper: tiny...large-v3, turbo."),
+    language: str = typer.Option("auto", "--language", help="whisper: en, es, ja... or auto."),
+    fmt: str = typer.Option("txt", "--format", help="whisper: txt, srt, vtt, json."),
     file: list[str] = typer.Option([], "--file", "-f",
         help="Send a local file with the job. Repeatable."),
     cores: int = typer.Option(1, "--cores"),
@@ -104,18 +139,40 @@ def run_command(
         if src not in file:
             file = [*file, src]
         args["encoder"] = encoder
+    elif runtime == "whisper":
+        if not audio:
+            _fail("  whisper needs --audio <file>")
+        args["audio"] = Path(audio).name
+        # Sent with the job; the runtime resolves it by name inside the job's
+        # own directory, never by the path given here.
+        if audio not in file:
+            file = [*file, audio]
+        args["model"] = model
+        args["language"] = language
+        args["format"] = fmt
+        # --device is shared with blender, whose names are upper case. The
+        # default "CPU" is a valid whisper device once folded down.
+        args["device"] = device.lower()
 
     try:
-        node_id, where = _resolve_node(on)
-        typer.secho(f"\n  {runtime} on {where}", fg=typer.colors.BRIGHT_WHITE)
+        node_id, where, placement = _resolve_node(on)
+        if placement == "auto":
+            # No node named yet -- the next two lines, once the agent has
+            # decided, say which one won and why.
+            typer.secho(f"\n  {runtime} · asking the scheduler\n",
+                        fg=typer.colors.BRIGHT_WHITE)
+        else:
+            typer.secho(f"\n  {runtime} on {where}", fg=typer.colors.BRIGHT_WHITE)
         job = apiclient.post(
             "/jobs",
             {"runtime": runtime, "args": args, "node_id": node_id, "files": file,
-             "cpu_cores": cores, "wall_seconds": timeout, "label": f"{runtime} via cli"},
+             "placement": placement, "cpu_cores": cores, "wall_seconds": timeout,
+             "label": f"{runtime} via cli"},
         )
         if job["state"] == "rejected":
             _fail(f"  rejected: {job['error']}")
 
+        _announce_placement(job)
         final = _follow(job["job_id"])
     except apiclient.AgentNotRunningError as exc:
         _fail(f"  {exc}")

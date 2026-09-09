@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import ipaddress
 import ssl
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -15,6 +17,7 @@ from haze import log
 from haze.blobs import transfer as blobs
 from haze.config import Config
 from haze.db import peers as peer_db
+from haze.db.models import Peer, PinnedAddress
 from haze.identity.keys import Identity
 from haze.jobs.spec import JobSpec
 from haze.pairing import sas
@@ -25,9 +28,84 @@ _log = log.get("transport.client")
 
 CONNECT_TIMEOUT_S = 8.0
 
+# Smallest dial worth starting. Below this a connect cannot distinguish a slow
+# link from a dead one, so the attempt would only produce a misleading timeout.
+MIN_ATTEMPT_S = 1.5
+
+# `probe_peers` wraps every capability call in asyncio.wait_for(..., 4.0). A
+# budget above that would be cancelled mid-dial and the fallback address would
+# never be tried at all -- the pin would work for ping and jobs and silently do
+# nothing for the scheduler.
+CAPABILITIES_BUDGET_S = 3.5
+
+# The dashboard's POST /peers/{id}/ping has no timeout of its own, so this is
+# what a user waits for when they click it.
+PING_BUDGET_S = 10.0
+
+# Tailscale hands out addresses from the RFC 6598 shared range and its own
+# unique-local v6 prefix. Recognising them is only ever used to word an error
+# message; nothing about trust or routing depends on it.
+_OVERLAY_NETS = (
+    ipaddress.ip_network("100.64.0.0/10"),
+    ipaddress.ip_network("fd7a:115c:a1e0::/48"),
+)
+
+# Spelled out rather than using `is_private`, which answers a broader question
+# ("not globally reachable") than the one being asked here. It is True for the
+# documentation ranges and, depending on the Python version, disagrees with
+# itself about the shared range above -- so leaning on it would make the hint
+# unpredictable across interpreters.
+_LAN_NETS = (
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("fc00::/7"),
+    ipaddress.ip_network("fe80::/10"),
+)
+
 
 class ConnectError(Exception):
-    """Could not reach or authenticate the peer. Message is user-facing."""
+    """Could not reach or authenticate the peer. Message is user-facing.
+
+    ``kind`` lets a caller trying several addresses tell "nothing answered"
+    from "something answered with the wrong certificate" without matching on
+    message text. ``brief`` is the one-line form used when several failures
+    have to be reported together.
+    """
+
+    def __init__(self, message: str, *, kind: str = "unreachable", brief: str = "") -> None:
+        super().__init__(message)
+        self.kind = kind
+        """One of "unreachable", "timeout", "tls", "identity"."""
+        self.brief = brief or message
+
+
+def _timeout_hint(host: str) -> str:
+    """Why a connection to ``host`` might have timed out.
+
+    Client isolation is a real and common cause on a LAN, and a useless thing
+    to say about a machine reached over an overlay network or the open
+    internet -- it sends the user to their router settings for a problem that
+    is not there.
+    """
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        # A DNS name. It resolved (we got as far as connecting), but nothing
+        # about the address tells us which network it is on.
+        return ("Is the agent running there, and is the port open through any firewall "
+                "in between?")
+
+    if any(address in net for net in _OVERLAY_NETS):
+        return ("That is an overlay address. Is Tailscale up on both machines? "
+                "`tailscale status` on each will say.")
+    if address.is_loopback or any(address in net for net in _LAN_NETS):
+        return ("Is the agent running there, and is the port reachable? Some access points "
+                "isolate clients from each other, which blocks this even when both machines "
+                "are on the same WiFi.")
+    return ("Is the agent running there, and is the port reachable from outside its network? "
+            "A public address usually needs a firewall rule or port forward.")
 
 
 @dataclass
@@ -61,6 +139,7 @@ async def connect(
     node_port: int,
     expected_public_key: bytes | None = None,
     expected_cert: bytes | None = None,
+    timeout_s: float = CONNECT_TIMEOUT_S,
 ) -> AsyncIterator[Connection]:
     """Open an authenticated connection to a node.
 
@@ -71,13 +150,15 @@ async def connect(
     try:
         reader, writer = await asyncio.wait_for(
             asyncio.open_connection(host, port, ssl=context, server_hostname=""),
-            CONNECT_TIMEOUT_S,
+            timeout_s,
         )
     except TimeoutError as exc:
+        # The deadline named here is the one actually used, not the module
+        # default: when several addresses share a budget they each get less.
         raise ConnectError(
-            f"{host}:{port} did not respond within {CONNECT_TIMEOUT_S:.0f}s. Is the agent "
-            f"running there, and is the port reachable? Some access points isolate clients "
-            f"from each other, which blocks this even when both machines are on the same WiFi."
+            f"{host}:{port} did not respond within {timeout_s:.0f}s. {_timeout_hint(host)}",
+            kind="timeout",
+            brief=f"no response in {timeout_s:.0f}s",
         ) from exc
     except ssl.SSLCertVerificationError as exc:
         # The pinned certificate did not match what the far end presented.
@@ -87,12 +168,19 @@ async def connect(
         raise ConnectError(
             f"{host}:{port} presented a certificate that does not match the one recorded "
             f"when you paired. Either it is a different machine, or its identity was reset "
-            f"(deleting ~/.haze does that). Re-pair to trust it again. [{exc.verify_message}]"
+            f"(deleting ~/.haze does that). Re-pair to trust it again. [{exc.verify_message}]",
+            kind="identity",
+            brief="presented a different certificate",
         ) from exc
     except ssl.SSLError as exc:
-        raise ConnectError(f"TLS handshake with {host}:{port} failed: {exc}") from exc
+        raise ConnectError(
+            f"TLS handshake with {host}:{port} failed: {exc}", kind="tls", brief=f"TLS failed: {exc}"
+        ) from exc
     except OSError as exc:
-        raise ConnectError(f"could not reach {host}:{port}: {exc}") from exc
+        raise ConnectError(
+            f"could not reach {host}:{port}: {exc}",
+            brief=str(exc.strerror or exc),
+        ) from exc
 
     try:
         peer = await client_handshake(
@@ -106,11 +194,162 @@ async def connect(
         )
         yield Connection(reader=reader, writer=writer, peer=peer)
     except HandshakeError as exc:
-        raise ConnectError(str(exc)) from exc
+        # An identity failure like a certificate mismatch, just detected one
+        # layer up: this is where the expected_public_key pin is enforced.
+        raise ConnectError(str(exc), kind="identity") from exc
     finally:
-        with contextlib.suppress(Exception):
+        # BaseException, not Exception: CancelledError is not an Exception, and
+        # `probe_peers` cancels these routinely. Letting a cancellation escape
+        # from here would replace whatever error the caller was already
+        # reporting with a bare CancelledError.
+        with contextlib.suppress(BaseException):
             writer.close()
             await writer.wait_closed()
+
+
+@dataclass(frozen=True, slots=True)
+class Address:
+    """One place a peer might be reachable, and where that belief came from."""
+
+    host: str
+    port: int
+    source: str
+    """"pinned" (the user said so) or "last seen" (observed traffic)."""
+
+    def __str__(self) -> str:
+        return f"{self.host}:{self.port} ({self.source})"
+
+
+async def peer_addresses(peer: Peer, pins: list[PinnedAddress] | None = None) -> list[Address]:
+    """Every address worth trying for a peer, best first.
+
+    Pinned addresses lead because they are the user's stated intent; the
+    last-observed address follows as the fallback that needs no configuration.
+    Pass ``pins`` when iterating many peers to avoid a query each.
+    """
+    if pins is None:
+        pins = await peer_db.pinned(peer.node_id)
+
+    found: list[Address] = [Address(pin.host, pin.port, "pinned") for pin in pins]
+    if peer.last_host and peer.last_port:
+        found.append(Address(peer.last_host, peer.last_port, "last seen"))
+
+    # Dedupe textually, keeping the first (and so the higher-priority) entry.
+    # This does not catch a name and an address that resolve to one machine --
+    # pinning `box.local` alongside a last-seen 192.168.1.5 costs two dials to
+    # learn one fact. Resolving to compare would cost a lookup on every dial.
+    seen: set[tuple[str, int]] = set()
+    unique: list[Address] = []
+    for address in found:
+        key = (address.host, address.port)
+        if key not in seen:
+            seen.add(key)
+            unique.append(address)
+    return unique
+
+
+def _no_address_error(peer: Peer) -> ConnectError:
+    return ConnectError(
+        f"no known address for {peer.display_name} yet -- wait for it to connect once, "
+        f"or set one with `haze address {peer.display_name} --set <host>`."
+    )
+
+
+def _dial_failure(peer: Peer, failures: list[tuple[Address, ConnectError]]) -> ConnectError:
+    """Turn several failed dials into one message.
+
+    A single failure is re-raised untouched. That is the overwhelmingly common
+    case, its wording is already written for a user, and both `routes_jobs` and
+    `routes_pairing` pipe this string straight into a UI field sized for a
+    sentence -- concatenating two of them would blow it out.
+    """
+    if len(failures) == 1:
+        return failures[0][1]
+
+    # An address that answered with the wrong certificate is a more actionable
+    # fact than several that did not answer at all, so it leads.
+    identity = next((exc for _, exc in failures if exc.kind == "identity"), None)
+    lines = "\n".join(f"  {address} -- {exc.brief}" for address, exc in failures)
+    detail = f"\n{identity}" if identity else ""
+    return ConnectError(
+        f"could not reach {peer.display_name} at any known address:\n{lines}{detail}",
+        kind=identity.kind if identity else "unreachable",
+    )
+
+
+@asynccontextmanager
+async def connect_to_peer(
+    peer: Peer,
+    identity: Identity,
+    cfg: Config,
+    budget_s: float | None = None,
+    pins: list[PinnedAddress] | None = None,
+) -> AsyncIterator[Connection]:
+    """Connect to a paired peer, trying its known addresses in order.
+
+    A peer can be reachable at more than one address -- a LAN address and an
+    overlay address, say -- and which one works depends on where the machine
+    currently is. Dialling only the last-observed address means a laptop that
+    left the house stops being reachable even though its pinned address is
+    fine.
+
+    ``budget_s`` bounds the whole attempt, not each dial, because the caller
+    is the only one that knows how long its own caller will wait.
+    """
+    candidates = await peer_addresses(peer, pins)
+    if not candidates:
+        raise _no_address_error(peer)
+
+    deadline = time.monotonic() + (budget_s or CONNECT_TIMEOUT_S * len(candidates))
+    failures: list[tuple[Address, ConnectError]] = []
+
+    async with AsyncExitStack() as stack:
+        for index, address in enumerate(candidates):
+            # Fair share of what is left, capped at the normal timeout. A plain
+            # `min(CONNECT_TIMEOUT_S, remaining)` would let a black-holed first
+            # address eat most of the budget -- and the first address is the
+            # pinned one, the one a user typed and so the likelier to be wrong.
+            # Dividing also hands unspent time back when a dial fails fast.
+            remaining = deadline - time.monotonic()
+            attempt = min(CONNECT_TIMEOUT_S, remaining / (len(candidates) - index))
+            if attempt < MIN_ATTEMPT_S:
+                failures.append((address, ConnectError("not tried: out of time")))
+                continue
+            try:
+                conn = await stack.enter_async_context(
+                    connect(
+                        address.host,
+                        address.port,
+                        identity,
+                        cfg.node_name,
+                        cfg.node_port,
+                        expected_public_key=peer.public_key,
+                        expected_cert=peer.cert_der,
+                        timeout_s=attempt,
+                    )
+                )
+            except ConnectError as exc:
+                # Falling through on an identity failure too. Authentication is
+                # bound to the public key, never to the address, so trying
+                # another address cannot let an impostor in -- it can only
+                # reach the real peer. Aborting instead would mean a pinned
+                # address later reassigned to some other machine takes the peer
+                # offline permanently, which is this feature's *expected*
+                # decay, not an attack.
+                failures.append((address, exc))
+                continue
+
+            _log.debug("reached %s at %s", peer.display_name, address)
+            # INVARIANT: this yield must stay outside the `except` above, with
+            # nothing that can raise ConnectError between them. Callers raise
+            # ConnectError from inside this block (a refused job, a mid-job
+            # disconnect); catching one here would dial the next address and
+            # yield a second time -- "generator didn't stop after athrow()" --
+            # replacing the user's real error with an internal traceback.
+            yield conn
+            return
+
+        raise _dial_failure(peer, failures)
 
 
 async def pair(
@@ -198,15 +437,10 @@ async def submit_job_to(
     peer = await peer_db.get(node_id)
     if peer is None:
         raise ConnectError(f"not paired with {node_id.split('-')[0]}")
-    if not peer.last_host or not peer.last_port:
-        raise ConnectError(
-            f"no known address for {peer.display_name} yet -- wait for it to connect once"
-        )
 
-    async with connect(
-        peer.last_host, peer.last_port, identity, cfg.node_name, cfg.node_port,
-        expected_public_key=peer.public_key, expected_cert=peer.cert_der,
-    ) as conn:
+    # No budget: the person who submitted this is already committed, and the
+    # job's own wall clock bounds what follows.
+    async with connect_to_peer(peer, identity, cfg) as conn:
         hello = await conn.recv(timeout=10.0)
         if hello.get("type") != "auth_ok":
             raise ConnectError(str(hello.get("detail") or hello.get("reason") or "refused"))
@@ -307,13 +541,10 @@ async def _send_files(conn: Connection, paths: list[Path]) -> None:
 async def peer_capabilities(node_id: str, identity: Identity, cfg: Config) -> dict[str, Any]:
     """Ask a peer what it can run. The scheduler's input in M4."""
     peer = await peer_db.get(node_id)
-    if peer is None or not peer.last_host or not peer.last_port:
+    if peer is None:
         raise ConnectError("peer is not reachable yet")
 
-    async with connect(
-        peer.last_host, peer.last_port, identity, cfg.node_name, cfg.node_port,
-        expected_public_key=peer.public_key, expected_cert=peer.cert_der,
-    ) as conn:
+    async with connect_to_peer(peer, identity, cfg, budget_s=CAPABILITIES_BUDGET_S) as conn:
         await conn.recv(timeout=10.0)   # auth_ok
         await conn.send(frames.message("capabilities"))
         reply = await conn.recv(timeout=10.0)
@@ -325,21 +556,13 @@ async def ping_peer(node_id: str, identity: Identity, cfg: Config) -> tuple[bool
     peer = await peer_db.get(node_id)
     if peer is None:
         return False, "not paired"
-    if not peer.last_host or not peer.last_port:
-        # Before the port-advertising handshake landed, this was silently
-        # falling back to *our own* node port and pinging ourselves.
-        return False, "no known address for this peer yet -- wait for it to connect once"
 
+    # The "no known address" case is now connect_to_peer's to report, and it
+    # arrives here as a ConnectError like any other. It must never fall back to
+    # our own node port: before the port-advertising handshake landed, that bug
+    # made a node ping itself and report success.
     try:
-        async with connect(
-            peer.last_host,
-            peer.last_port,
-            identity,
-            cfg.node_name,
-            cfg.node_port,
-            expected_public_key=peer.public_key,
-            expected_cert=peer.cert_der,
-        ) as conn:
+        async with connect_to_peer(peer, identity, cfg, budget_s=PING_BUDGET_S) as conn:
             reply = await conn.recv(timeout=10.0)
             if reply.get("type") != "auth_ok":
                 return False, str(reply.get("detail") or reply.get("reason") or "refused")

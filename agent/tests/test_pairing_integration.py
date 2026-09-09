@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -420,3 +421,152 @@ def test_the_submitter_survives_its_worker_dying(
     finally:
         submitter.stop()
         worker.stop()
+
+
+def test_a_pinned_address_survives_the_peer_connecting_from_elsewhere(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """The end-to-end version of the property the whole feature rests on.
+
+    Two real agents, a real pin, and a real inbound session afterwards. The
+    unit tests assert this against the database; this asserts it against what
+    a user actually sees in `haze peers`, through the same API the dashboard
+    reads.
+
+    Its own pair of nodes rather than the module cluster: this mutates peer
+    state, and the shared fixture is stateful.
+    """
+    root = tmp_path_factory.mktemp("pinned")
+    one = Node("pinner", root / "pinner", 7621, 8621)
+    two = Node("target", root / "target", 7622, 8622)
+
+    one.start()
+    two.start()
+    try:
+        _pair(one, two)
+        node_id = one.peers()[0]["node_id"]
+
+        # A second address for the same machine. Loopback is the only thing
+        # reachable in a test, so this uses a port rather than a subnet to
+        # stand in for "somewhere other than where it last connected from".
+        one.call("PUT", f"/peers/{node_id}/address",
+                 {"host": "127.0.0.1", "port": 9621})
+
+        pinned = one.peers()[0]
+        assert (pinned["pinned_host"], pinned["pinned_port"]) == ("127.0.0.1", 9621)
+
+        # Pinning without a port must use the *peer's* port. Defaulting to
+        # cfg.node_port is how a node ends up dialling itself: it is the port
+        # this agent listens on, and on two machines with different node ports
+        # the pin would silently point back home.
+        one.call("PUT", f"/peers/{node_id}/address", {"host": "127.0.0.1"})
+        assert one.peers()[0]["pinned_port"] == two.node_port != one.node_port
+
+        one.call("PUT", f"/peers/{node_id}/address",
+                 {"host": "127.0.0.1", "port": 9621})
+
+        # Make the peer connect in, which rewrites last_host/last_port.
+        assert one.post(f"/peers/{node_id}/ping") is not None
+        two.post(f"/peers/{one.peers()[0]['node_id']}/ping")
+        time.sleep(1.0)
+
+        after = one.peers()[0]
+        assert (after["pinned_host"], after["pinned_port"]) == ("127.0.0.1", 9621), (
+            "observed traffic must not overwrite an address the user pinned"
+        )
+
+        # And clearing it is not a revocation.
+        one.call("DELETE", f"/peers/{node_id}/address")
+        assert one.peers()[0]["pinned_host"] == ""
+        assert len(one.peers()) == 1
+    finally:
+        one.stop()
+        two.stop()
+
+
+def test_an_address_that_cannot_resolve_is_refused_when_it_is_typed(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """asyncio resolves on the default thread pool, and cancelling the await
+    does not free a thread blocked in getaddrinfo. A pinned name that never
+    resolves would be re-dialled by the capability probe on a timer until the
+    pool was exhausted, stalling unrelated work across the agent. Rejecting it
+    at the moment it is typed turns that into a sentence."""
+    root = tmp_path_factory.mktemp("badpin")
+    one = Node("checker", root / "checker", 7623, 8623)
+    two = Node("other", root / "other", 7624, 8624)
+
+    one.start()
+    two.start()
+    try:
+        _pair(one, two)
+        node_id = one.peers()[0]["node_id"]
+
+        with pytest.raises(urllib.error.HTTPError) as caught:
+            one.call("PUT", f"/peers/{node_id}/address",
+                     {"host": "nothing.invalid", "port": 8443})
+        assert caught.value.code == 400
+        assert one.peers()[0]["pinned_host"] == "", "nothing should have been stored"
+    finally:
+        one.stop()
+        two.stop()
+
+
+@pytest.mark.lan
+def test_a_pinned_address_reaches_a_real_second_machine() -> None:
+    """The only test that can prove off-LAN reachability, because it needs a
+    machine this one cannot reach by broadcast.
+
+    Set HAZE_LAN_PEER and HAZE_LAN_PEER_HOST to a paired peer's name and its
+    address on the overlay network, with an agent running on both ends. Note
+    `make check` and CI do not deselect the `lan` marker, so this skips itself
+    rather than failing where there is no second machine.
+    """
+    peer = os.environ.get("HAZE_LAN_PEER")
+    host = os.environ.get("HAZE_LAN_PEER_HOST")
+    if not peer or not host:
+        pytest.skip("set HAZE_LAN_PEER and HAZE_LAN_PEER_HOST to run this")
+
+    home = Path(os.environ.get("HAZE_HOME") or (Path.home() / ".haze"))
+    assert _run_cli(home, "address", peer, "--set", host).returncode == 0
+
+    shown = _run_cli(home, "address", peer)
+    assert host in shown.stdout
+
+    # The pin is only worth anything if it actually carries a connection.
+    pinged = _run_cli(home, "peers")
+    assert peer in pinged.stdout
+
+
+def test_a_node_is_reachable_over_ipv6(tmp_path_factory: pytest.TempPathFactory) -> None:
+    """The listener binds both families, so both of a machine's addresses work.
+
+    An overlay network hands out a v4 and a v6 address for every machine and a
+    user reaches for either. Binding only 0.0.0.0 made half of what Haze
+    advertises silently dead -- a connection that times out with no hint that
+    the family is the problem.
+    """
+    if not socket.has_ipv6:  # pragma: no cover - depends on the host
+        pytest.skip("no IPv6 on this machine")
+
+    root = tmp_path_factory.mktemp("v6")
+    one = Node("six", root / "six", 7625, 8625)
+    two = Node("sixtoo", root / "sixtoo", 7626, 8626)
+
+    one.start()
+    two.start()
+    try:
+        two.post("/pairing/arm", {"ttl_s": 120})
+        # ::1 rather than 127.0.0.1 -- this is the whole point of the test.
+        one.post("/pairing/initiate", {"host": "::1", "port": two.node_port})
+
+        on_one, on_two = one.pending("outgoing"), two.pending("incoming")
+        assert on_one and on_two, "the v6 listener did not accept the connection"
+        one.post("/pairing/confirm", {"session_id": on_one["session_id"]})
+        two.post("/pairing/confirm", {"session_id": on_two["session_id"]})
+
+        assert one.wait_for_peer_count(1)
+        assert two.wait_for_peer_count(1)
+    finally:
+        one.stop()
+        two.stop()

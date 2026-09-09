@@ -148,6 +148,30 @@ class JobRecord:
     log_tail: list[str] = field(default_factory=list)
     outputs: list[str] = field(default_factory=list)
     peak_ram_bytes: int = 0
+    enforcement: dict[str, Any] | None = None
+    """What the OS was actually made to enforce for this job, from
+    ``limits.Enforcement.to_dict()``.
+
+    A field rather than only the ``[haze] caps:`` line in ``log_tail``, for the
+    same reason ``placement`` is one: ``JobExecutor.update_remote`` replaces
+    ``log_tail`` wholesale with the peer's own, so for a job running on someone
+    else's machine the caps line survives only until it scrolls out of the
+    200-line window. A remote job is precisely the case where you cannot go and
+    inspect the machine yourself, so it is the wrong record to lose."""
+
+    placement: dict[str, Any] | None = None
+    """The scheduler's Decision, when this job was placed automatically.
+
+    A field of its own rather than a line in ``log_tail``: a remote job's
+    ``log_tail`` is replaced wholesale by the peer's own (see
+    ``JobExecutor.update_remote``), so reasoning written there is erased by the
+    first progress update to arrive -- which is precisely the case where "why
+    did it go *there*?" is worth being able to answer.
+
+    Kept as a plain dict (``Decision.to_dict()``, filled in by the API) rather
+    than the dataclass, so this module stays free of a dependency on the
+    scheduler package it is otherwise entirely independent of.
+    """
 
     @property
     def duration_s(self) -> float | None:
@@ -170,4 +194,6 @@ class JobRecord:
             "log_tail": self.log_tail[-40:],
             "outputs": self.outputs,
             "peak_ram_bytes": self.peak_ram_bytes,
+            "enforcement": self.enforcement,
+            "placement": self.placement,
         }

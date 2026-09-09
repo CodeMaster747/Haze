@@ -139,25 +139,39 @@ class DiscoveryRegistry:
             self._notify()
 
     def _warn_about_isolation(self) -> None:
-        """Name the AP-isolation case explicitly.
+        """Name the AP-isolation case explicitly -- but only where it applies.
 
         Seeing a node's advertisement but never being able to open a connection
         to it is the signature of client isolation -- default-on for guest
         SSIDs and common on ISP-supplied routers. No discovery fallback can fix
         it, so reporting a generic timeout would send the user hunting in
         entirely the wrong place.
+
+        That diagnosis depends on the node having *advertised*, which only
+        happens over mDNS or broadcast and only on this segment. An address the
+        user typed carries no such evidence: it may be a typo, or a machine on
+        the other side of the world that is simply switched off. Blaming the
+        access point for that would send them hunting in the wrong place just
+        as surely.
         """
-        blocked = [n for n in self._nodes.values() if n.sources and n.port and n.reachable is False]
-        if not blocked:
-            return
-        _log.warning(
-            "%s advertised but unreachable (%s). If this persists, your access point is "
-            "probably isolating clients from each other -- common on guest networks. "
-            "Discovery cannot work around it; the machines need to be on a network that "
-            "permits device-to-device traffic.",
-            "node is" if len(blocked) == 1 else "nodes are",
-            ", ".join(n.short_id for n in blocked),
-        )
+        unreachable = [n for n in self._nodes.values() if n.port and n.reachable is False]
+        advertised = [n for n in unreachable if n.sources & {"mdns", "broadcast"}]
+        typed = [n for n in unreachable if not n.sources & {"mdns", "broadcast"}]
+
+        if advertised:
+            _log.warning(
+                "%s advertised but unreachable (%s). If this persists, your access point is "
+                "probably isolating clients from each other -- common on guest networks. "
+                "Discovery cannot work around it; the machines need to be on a network that "
+                "permits device-to-device traffic.",
+                "node is" if len(advertised) == 1 else "nodes are",
+                ", ".join(n.short_id for n in advertised),
+            )
+        if typed:
+            _log.warning(
+                "no answer at %s. Check the address, and that the agent is running there.",
+                ", ".join(f"{n.host}:{n.port}" for n in typed),
+            )
 
     # --- state -------------------------------------------------------------
 

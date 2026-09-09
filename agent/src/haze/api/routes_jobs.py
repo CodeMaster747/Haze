@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import JSONResponse
@@ -21,7 +21,7 @@ from haze.jobs.spec import JobSpec, ResourceRequest
 from haze.runtime import Agent
 from haze.scheduler import cluster
 from haze.scheduler.decide import decide
-from haze.scheduler.model import JobRequirement
+from haze.scheduler.model import Decision, JobRequirement
 from haze.transport import client as node_client
 
 _log = log.get("api.jobs")
@@ -33,8 +33,17 @@ router = APIRouter()
 _background: set[asyncio.Task[None]] = set()
 
 
-def _resolve_inputs(paths: list[str]) -> list[Path]:
-    return [Path(p).expanduser().resolve(strict=True) for p in paths]
+def _resolve_inputs(paths: list[str]) -> tuple[list[Path], int]:
+    """Resolve every input and total their sizes, in one trip to the filesystem.
+
+    The total is what the scheduler means by ``input_bytes`` -- the bytes that
+    would have to reach a remote node and come back. Computed here rather than
+    in a second pass because this function is already the one thread hop that
+    stats these files, and asking the caller for a number it would have to
+    derive the same way is how the two drift apart.
+    """
+    resolved = [Path(p).expanduser().resolve(strict=True) for p in paths]
+    return resolved, sum(p.stat().st_size for p in resolved)
 
 
 def _stage_inputs(workdir: Path, sources: list[Path]) -> None:
@@ -56,8 +65,27 @@ class SubmitRequest(BaseModel):
     runtime: str
     args: dict[str, Any] = Field(default_factory=dict)
     label: str = ""
+    placement: Literal["manual", "auto"] = "manual"
+    """How the node is chosen.
+
+    "manual" honours ``node_id`` below. "auto" asks the scheduler, which may
+    well choose this machine anyway.
+
+    A field of its own rather than a magic ``node_id`` value like "auto":
+    ``node_id`` already carries two meanings (empty is here, anything else is
+    that peer), and a node identity that is not a node identity is a value some
+    future caller sends by accident. Being a Literal also means a typo is a 422
+    naming the field rather than a silent fall-through to running it here.
+    """
     node_id: str = ""
     """Empty means run here. Otherwise the paired peer to run it on."""
+    work_units: float | None = Field(default=None, gt=0)
+    """Rough compute size, when the caller knows better than the runtime.
+
+    Overrides the runtime's own estimate on the auto path; ignored otherwise.
+    One unit is one second on a node with speed_factor 1.0 -- the same scale
+    /schedule takes, so a preview and the submission that follows it can be
+    given identical inputs."""
     cpu_cores: int = Field(default=1, ge=1, le=256)
     ram_bytes: int = Field(default=1 << 30, ge=1 << 20)
     wall_seconds: int = Field(default=3600, ge=1, le=86400)
@@ -77,6 +105,52 @@ class SubmitRequest(BaseModel):
     browser. For a remote job these are read here and streamed to the peer."""
 
 
+async def _place(
+    request: Request,
+    agent: Agent,
+    body: SubmitRequest,
+    sources: list[Path],
+    input_bytes: int,
+) -> Decision:
+    """Ask the scheduler where this job should run.
+
+    The same three-line recipe /schedule uses -- probe, build candidates,
+    decide -- with the two inputs a submission has and a preview does not:
+    ``input_bytes`` totalled from the files being sent, and ``work_units``
+    either given by the caller or estimated by the runtime itself.
+
+    Capabilities come from the *cached* probe, not the live one. A preview is
+    rare and deliberate and can afford four seconds of asking; a submission is
+    something a user is waiting on.
+    """
+    capabilities = await cluster.cached_capabilities(agent.identity, agent.cfg)
+    candidates = await cluster.build(
+        request.app.state.hub.latest(), agent.node_id, agent.cfg.node_name, capabilities
+    )
+    if body.work_units is not None:
+        # A caller that has measured this exact job knows more than a runtime
+        # reasoning from its arguments, so an explicit hint always wins.
+        work_units = body.work_units
+    else:
+        # The estimate may stat files or shell out to ffprobe, so it goes off
+        # the event loop like the other filesystem work on this path.
+        work_units = await asyncio.to_thread(
+            runtimes.estimate_work_units, body.runtime, body.args, sources
+        )
+    return decide(
+        candidates,
+        JobRequirement(
+            runtime=body.runtime,
+            cpu_cores=body.cpu_cores,
+            ram_bytes=body.ram_bytes,
+            needs_gpu=body.needs_gpu,
+            preferred_encoders=body.preferred_encoders,
+            input_bytes=input_bytes,
+            work_units=work_units,
+        ),
+    )
+
+
 @router.get("/jobs")
 async def list_jobs(request: Request) -> JSONResponse:
     return JSONResponse(_agent(request).executor.state())
@@ -93,6 +167,12 @@ async def get_job(request: Request, job_id: str) -> JSONResponse:
 @router.post("/jobs")
 async def submit(request: Request, body: SubmitRequest) -> JSONResponse:
     agent = _agent(request)
+    if body.placement == "auto" and body.node_id:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "placement 'auto' chooses the node; do not also send a node_id",
+        )
+
     spec = JobSpec(
         job_id=new_job_id(),
         runtime=body.runtime,
@@ -112,28 +192,44 @@ async def submit(request: Request, body: SubmitRequest) -> JSONResponse:
         # local stat() calls on a handful of paths -- microseconds, on loopback,
         # from a single-user dashboard. Pulling in anyio.Path to avoid them
         # would add a dependency and obscure the code for no measurable gain.
-        sources = await asyncio.to_thread(_resolve_inputs, body.files)
+        sources, input_bytes = await asyncio.to_thread(_resolve_inputs, body.files)
     except OSError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"input file not found: {exc}") from exc
 
-    if not body.node_id:
+    target = body.node_id
+    placement: dict[str, Any] | None = None
+
+    if body.placement == "auto":
+        decision = await _place(request, agent, body, sources, input_bytes)
+        placement = decision.to_dict()
+        if decision.chosen is None:
+            # Decision.summary is already written for a person -- "no node can
+            # run ffmpeg: laptop does not have ffmpeg; nas does not have
+            # ffmpeg". Rewriting it here would be a second, worse copy of a
+            # sentence the scheduler already got right.
+            return JSONResponse(agent.executor.reject(spec, decision.summary, placement).to_dict())
+        # cluster.build puts this node first with node_id == agent.node_id, so
+        # comparing against it is what selects the local branch below.
+        target = "" if decision.chosen == agent.node_id else decision.chosen
+
+    if not target:
         # Local: copy inputs into the job directory so the runtime's path
         # allowlist has something to resolve against.
         if sources:
             await asyncio.to_thread(
                 _stage_inputs, agent.executor.workdir_for(spec.job_id), sources
             )
-        return JSONResponse(agent.executor.submit(spec).to_dict())
+        return JSONResponse(agent.executor.submit(spec, placement).to_dict())
 
     # Remote: run it on a paired peer and mirror its progress into this node's
     # job list, so the dashboard shows local and remote work in one place.
     mirror = agent.executor
-    placeholder = mirror.submit_placeholder(spec, body.node_id)
+    placeholder = mirror.submit_placeholder(spec, target, placement)
 
     async def run() -> None:
         try:
             final = await node_client.submit_job_to(
-                body.node_id, spec, agent.identity, agent.cfg,
+                target, spec, agent.identity, agent.cfg,
                 on_progress=lambda payload: mirror.update_remote(spec.job_id, payload),
                 files=sources,
                 fetch_into=(
