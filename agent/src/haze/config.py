@@ -272,12 +272,21 @@ def port_is_free(port: int, host: str = "127.0.0.1") -> bool:
 
     ``host`` defaults to loopback but callers should pass what the server will
     actually bind -- ``NodeServer`` uses 0.0.0.0, and a port free on loopback
-    may be taken on a LAN interface. SO_REUSEADDR matches asyncio's own
-    ``create_server``, which sets it by default on POSIX, so the probe and the
-    real bind agree.
+    may be taken on a LAN interface.
+
+    SO_REUSEADDR is set on POSIX only, because that is what asyncio's
+    ``create_server`` does (``reuse_address = os.name == "posix"``) and the
+    probe is worthless unless it agrees with the real bind. The flag does not
+    mean the same thing on the two platforms: on POSIX it permits reusing a
+    port left in TIME_WAIT, but on Windows it permits binding a port another
+    socket is actively listening on. Setting it here on Windows made this
+    function answer True for a port that was plainly taken, so `haze up` sailed
+    past its pre-flight and died later inside uvicorn's lifespan -- the exact
+    late failure the check exists to prevent.
     """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if os.name == "posix":
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             s.bind((host, port))
         except OSError:

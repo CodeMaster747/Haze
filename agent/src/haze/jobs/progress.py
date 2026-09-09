@@ -235,7 +235,12 @@ class WhisperProgressParser(ProgressParser):
     def __init__(self) -> None:
         self._p = Progress(stage="transcribing")
         self._total: float | None = None
-        self._started = time.monotonic()
+        # perf_counter, not monotonic: both are monotonic, but monotonic's
+        # resolution on Windows is the ~15.6 ms clock tick, so a `processed`
+        # line arriving promptly after start measures exactly zero elapsed and
+        # the rate below is dropped entirely. perf_counter is high-resolution
+        # on every platform.
+        self._started = time.perf_counter()
 
     def feed(self, line: str) -> bool:
         body = line.strip()
@@ -261,7 +266,7 @@ class WhisperProgressParser(ProgressParser):
             # Audio seconds per wall second -- the natural throughput number for
             # transcription, and comparable across machines the way "142 fps" is
             # for a render.
-            elapsed = time.monotonic() - self._started
+            elapsed = time.perf_counter() - self._started
             if elapsed > 0 and done > 0:
                 speed = done / elapsed
                 self._p.rate = f"{speed:.1f}x realtime"

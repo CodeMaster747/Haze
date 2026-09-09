@@ -248,21 +248,35 @@ def test_closing_the_guard_is_idempotent(fake):
 # --- the spawn plan --------------------------------------------------------
 
 
-def test_the_spawn_plan_never_mixes_the_two_platforms_kwargs(monkeypatch):
+# The two halves are separate tests, and only one of them is portable.
+# `spawn_plan`'s Windows branch is pure arithmetic over constants, so it can be
+# asserted anywhere; its POSIX branch cannot, because `preexec_for` returns None
+# when the `resource` module is missing -- which on Windows is not a mock but the
+# truth. Asserting both in one function meant the POSIX half silently depended on
+# the host being POSIX, and it failed the first time this suite ran on Windows.
+def test_the_windows_spawn_plan_passes_no_preexec_fn(monkeypatch):
     """CPython rejects creationflags on POSIX and preexec_fn on Windows, and
     the executor's spawn catches ValueError -- so getting this wrong would
     surface as a confusing 'could not start' rather than a crash."""
-    posix = limits.spawn_plan(1 << 30, 60, 2)
-    assert posix.creationflags == 0
-    assert posix.preexec is not None
-    assert not posix.resume_needed
-
     monkeypatch.setattr(limits.platform, "system", lambda: "Windows")
     win = limits.spawn_plan(1 << 30, 60, 2)
     assert win.preexec is None
     assert win.resume_needed, "a suspended child that is never resumed hangs forever"
     assert win.creationflags & winjob.CREATE_SUSPENDED
     assert win.creationflags & winjob.CREATE_NEW_PROCESS_GROUP
+
+
+@pytest.mark.skipif(
+    limits.resource is None, reason="the POSIX plan needs the resource module"
+)
+def test_the_posix_spawn_plan_sets_no_creationflags(monkeypatch):
+    """The mirror of the above: creationflags must stay 0 where CPython would
+    reject a non-zero one."""
+    monkeypatch.setattr(limits.platform, "system", lambda: "Linux")
+    posix = limits.spawn_plan(1 << 30, 60, 2)
+    assert posix.creationflags == 0
+    assert posix.preexec is not None
+    assert not posix.resume_needed
 
 
 def test_wrap_command_never_claims_windows_enforcement_up_front(monkeypatch):

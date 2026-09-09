@@ -61,9 +61,21 @@ def test_a_truncated_identity_key_is_explained(tmp_path: Path) -> None:
     assert "Traceback" not in result.stderr
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="there are no POSIX mode bits to be wrong about on Windows",
+)
 def test_a_readable_private_key_is_refused_not_repaired(tmp_path: Path) -> None:
     """Silently chmod-ing it would hide a possible key exposure from the only
-    person who can act on it."""
+    person who can act on it.
+
+    POSIX-only, and not merely because ``chmod(0o644)`` cannot express "group
+    and world readable" on Windows: the agent deliberately does not read mode
+    bits there at all, because NTFS ACLs are what actually govern the file and
+    the mode bits Python synthesises say nothing true about them. There is no
+    behaviour to assert here on Windows -- refusing to start over a fabricated
+    0644 would be the bug.
+    """
     home = tmp_path / "haze"
     home.mkdir(mode=0o700)
     monkeypatched = os.environ.get("HAZE_HOME")
